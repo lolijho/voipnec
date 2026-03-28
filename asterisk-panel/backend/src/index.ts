@@ -131,13 +131,69 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
-// Route mounting - lazy-load to allow routes to be added incrementally
-function mountRoute(path: string, modulePath: string): void {
+// ── Services Initialization ───────────────────────────────────────────────────
+
+let amiService: any = null;
+let ariService: any = null;
+let callLogService: any = null;
+let trunkService: any = null;
+
+try {
+  const { AmiService } = require('./services/AmiService');
+  amiService = new AmiService(io);
+  app.set('amiService', amiService);
+  logger.info('AMI service initialized');
+} catch (err) {
+  logger.warn('AMI service not available', {
+    error: err instanceof Error ? err.message : 'Unknown error',
+  });
+}
+
+try {
+  const { AriService } = require('./services/AriService');
+  ariService = new AriService(io);
+  app.set('ariService', ariService);
+  logger.info('ARI service initialized');
+} catch (err) {
+  logger.warn('ARI service not available', {
+    error: err instanceof Error ? err.message : 'Unknown error',
+  });
+}
+
+try {
+  const { CallLogService } = require('./services/CallLogService');
+  callLogService = new CallLogService(db);
+  app.set('callLogService', callLogService);
+  logger.info('CallLog service initialized');
+} catch (err) {
+  logger.warn('CallLog service not available', {
+    error: err instanceof Error ? err.message : 'Unknown error',
+  });
+}
+
+try {
+  const { TrunkService } = require('./services/TrunkService');
+  trunkService = new TrunkService(db, amiService);
+  app.set('trunkService', trunkService);
+  logger.info('Trunk service initialized');
+} catch (err) {
+  logger.warn('Trunk service not available', {
+    error: err instanceof Error ? err.message : 'Unknown error',
+  });
+}
+
+// ── Route Mounting ────────────────────────────────────────────────────────────
+
+const deps = { amiService, ariService, callLogService, trunkService, db };
+
+function mountRoute(routePath: string, modulePath: string): void {
   try {
-    const router = require(modulePath).default || require(modulePath).router;
-    if (router) {
-      app.use(path, router);
-      logger.info(`Route mounted: ${path}`);
+    const mod = require(modulePath);
+    const factory = mod.createRouter || mod.default;
+    if (typeof factory === 'function') {
+      const router = factory(deps);
+      app.use(routePath, router);
+      logger.info(`Route mounted: ${routePath}`);
     }
   } catch (err) {
     logger.warn(`Route module not found or failed to load: ${modulePath}`, {
@@ -151,44 +207,6 @@ mountRoute('/api/calls', './routes/calls');
 mountRoute('/api/extensions', './routes/extensions');
 mountRoute('/api/trunks', './routes/trunks');
 mountRoute('/api/phonebook', './routes/phonebook');
-
-// ── AMI & ARI Services ────────────────────────────────────────────────────────
-
-function initializeServices(): void {
-  try {
-    const amiModule = require('./services/ami');
-    const AmiService = amiModule.default || amiModule.AmiService;
-    if (AmiService) {
-      const amiService = typeof AmiService === 'function'
-        ? (AmiService.prototype ? new AmiService(io) : AmiService(io))
-        : AmiService;
-      app.set('amiService', amiService);
-      logger.info('AMI service initialized');
-    }
-  } catch (err) {
-    logger.warn('AMI service not available', {
-      error: err instanceof Error ? err.message : 'Unknown error',
-    });
-  }
-
-  try {
-    const ariModule = require('./services/ari');
-    const AriService = ariModule.default || ariModule.AriService;
-    if (AriService) {
-      const ariService = typeof AriService === 'function'
-        ? (AriService.prototype ? new AriService(io) : AriService(io))
-        : AriService;
-      app.set('ariService', ariService);
-      logger.info('ARI service initialized');
-    }
-  } catch (err) {
-    logger.warn('ARI service not available', {
-      error: err instanceof Error ? err.message : 'Unknown error',
-    });
-  }
-}
-
-initializeServices();
 
 // ── Serve Frontend Static Files ───────────────────────────────────────────────
 
