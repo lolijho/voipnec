@@ -16,7 +16,6 @@ import {
 } from 'lucide-react';
 import { Toaster } from '@/components/ui/toaster';
 import { useToast } from '@/components/ui/use-toast';
-import { useSocket } from '@/hooks/useSocket';
 import { useAsterisk } from '@/hooks/useAsterisk';
 import { useSoftphone } from '@/hooks/useSoftphone';
 import * as api from '@/lib/api';
@@ -91,6 +90,53 @@ function loadSoftphoneConfig(): { extension: string; sipPassword: string; wsUrl:
   return { extension: '', sipPassword: '', wsUrl: '' };
 }
 
+// ── Error Boundary ────────────────────────────────────────────────────
+
+import { Component, type ErrorInfo, type ReactNode } from 'react';
+
+class ErrorBoundary extends Component<
+  { children: ReactNode; fallback?: ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: ReactNode; fallback?: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('[ErrorBoundary]', error, info.componentStack);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        this.props.fallback || (
+          <div className="flex h-screen items-center justify-center bg-zinc-950 text-zinc-100">
+            <div className="text-center space-y-4 p-8">
+              <p className="text-red-400 text-lg font-semibold">Errore nell&apos;applicazione</p>
+              <p className="text-zinc-400 text-sm max-w-md">{this.state.error?.message}</p>
+              <button
+                onClick={() => {
+                  this.setState({ hasError: false, error: null });
+                  window.location.reload();
+                }}
+                className="px-4 py-2 bg-violet-600 rounded-lg text-sm hover:bg-violet-500"
+              >
+                Ricarica
+              </button>
+            </div>
+          </div>
+        )
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // ── Authenticated Shell ───────────────────────────────────────────────
 
 function AuthenticatedShell({ onLogout }: { onLogout: () => void }) {
@@ -101,35 +147,11 @@ function AuthenticatedShell({ onLogout }: { onLogout: () => void }) {
   const [showSoftphone, setShowSoftphone] = useState(false);
 
   // ── Hooks ───────────────────────────────────────────────────────────
-  const { socket, isConnected, asteriskStatus } = useSocket();
   const asterisk = useAsterisk();
+  const { isConnected, asteriskStatus } = asterisk;
 
   const spConfig = loadSoftphoneConfig();
   const softphone = useSoftphone(spConfig.extension, spConfig.sipPassword, spConfig.wsUrl);
-
-  // ── Socket event listeners for toast notifications ──────────────────
-  useEffect(() => {
-    if (!socket) return;
-
-    const handleNewCall = (data: { callerIdNum?: string; exten?: string }) => {
-      toast({
-        title: 'Nuova chiamata',
-        description: `Da ${data.callerIdNum || 'Sconosciuto'} verso ${data.exten || ''}`,
-      });
-    };
-
-    const handleCallHangup = (_data: { callerIdNum?: string; causeTxt?: string }) => {
-      // Calls refresh is handled by useAsterisk
-    };
-
-    socket.on('call:new', handleNewCall);
-    socket.on('call:hangup', handleCallHangup);
-
-    return () => {
-      socket.off('call:new', handleNewCall);
-      socket.off('call:hangup', handleCallHangup);
-    };
-  }, [socket, toast]);
 
   // ── Close mobile menu on page change ────────────────────────────────
   const handlePageChange = useCallback((page: Page) => {
@@ -137,22 +159,26 @@ function AuthenticatedShell({ onLogout }: { onLogout: () => void }) {
     setMobileMenuOpen(false);
   }, []);
 
-  // ── Trunk status summary ────────────────────────────────────────────
-  const registeredTrunks = asterisk.trunks.filter((t) => {
-    const s = asterisk.trunkStatuses.get(t.name);
+  // ── Trunk status summary (safe) ─────────────────────────────────────
+  const trunks = asterisk.trunks || [];
+  const trunkStatuses = asterisk.trunkStatuses || new Map();
+  const extensionStatuses = asterisk.extensionStatuses || new Map();
+
+  const registeredTrunks = trunks.filter((t) => {
+    const s = trunkStatuses.get(t.name);
     return s?.status === 'registered' || t.status === 'registered';
   }).length;
-  const totalTrunks = asterisk.trunks.length;
+  const totalTrunks = trunks.length;
 
   // ── Extension statuses as record for Extensions component ───────────
   const extStatusRecord: Record<string, api.ExtensionStatus> = {};
-  asterisk.extensionStatuses.forEach((status, key) => {
+  extensionStatuses.forEach((status: api.ExtensionStatus, key: string) => {
     extStatusRecord[key] = status;
   });
 
   // ── Trunk status record for Dashboard ───────────────────────────────
   const trunkStatusRecord: Record<string, string> = {};
-  asterisk.trunkStatuses.forEach((status, key) => {
+  trunkStatuses.forEach((status: { status: string }, key: string) => {
     trunkStatusRecord[key] = status.status;
   });
 
@@ -540,7 +566,11 @@ function App() {
     );
   }
 
-  return <AuthenticatedShell onLogout={handleLogout} />;
+  return (
+    <ErrorBoundary>
+      <AuthenticatedShell onLogout={handleLogout} />
+    </ErrorBoundary>
+  );
 }
 
 export default App;
