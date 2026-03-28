@@ -173,7 +173,7 @@ try {
 
 try {
   const { TrunkService } = require('./services/TrunkService');
-  trunkService = new TrunkService(db, amiService);
+  trunkService = new TrunkService(amiService);
   app.set('trunkService', trunkService);
   logger.info('Trunk service initialized');
 } catch (err) {

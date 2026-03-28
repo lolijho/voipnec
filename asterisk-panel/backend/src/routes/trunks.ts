@@ -118,7 +118,22 @@ export function createRouter(deps: TrunksDeps): Router {
       }
 
       if (trunkService) {
-        const trunk = await trunkService.createTrunk({ name, provider, config, enabled });
+        const trunkData = {
+          name,
+          provider,
+          host: config?.server || config?.host || '',
+          port: config?.port || 5060,
+          username: config?.username || config?.accountSid || '',
+          password: config?.password || config?.authToken || '',
+          codecs: Array.isArray(config?.codecs) ? config.codecs.join(',') : (config?.codecs || 'ulaw,alaw'),
+          context: config?.context || `from-trunk-${name}`,
+          transport: config?.transport || 'udp',
+          enabled: enabled !== undefined ? enabled : true,
+          outbound_prefix: config?.prefixOut || '',
+          register: config?.registration !== false,
+          auth_type: 'userpass',
+        };
+        const trunk = await trunkService.createTrunk(trunkData);
         logger.info('Trunk created via service', { user: req.user?.username, name, provider });
         res.status(201).json({ trunk });
         return;
@@ -167,7 +182,21 @@ export function createRouter(deps: TrunksDeps): Router {
       const { name, provider, config, enabled } = req.body;
 
       if (trunkService) {
-        const trunk = await trunkService.updateTrunk(id, { name, provider, config, enabled });
+        const updateData: Record<string, unknown> = {};
+        if (name) updateData.name = name;
+        if (provider) updateData.provider = provider;
+        if (enabled !== undefined) updateData.enabled = enabled;
+        if (config) {
+          updateData.host = config.server || config.host;
+          updateData.port = config.port || 5060;
+          updateData.username = config.username || config.accountSid;
+          updateData.password = config.password || config.authToken;
+          if (config.codecs) updateData.codecs = Array.isArray(config.codecs) ? config.codecs.join(',') : config.codecs;
+          if (config.transport) updateData.transport = config.transport;
+          if (config.prefixOut !== undefined) updateData.outbound_prefix = config.prefixOut;
+          if (config.registration !== undefined) updateData.register = config.registration;
+        }
+        const trunk = await trunkService.updateTrunk(id, updateData as any);
         if (!trunk) {
           res.status(404).json({ error: 'Trunk not found' });
           return;
