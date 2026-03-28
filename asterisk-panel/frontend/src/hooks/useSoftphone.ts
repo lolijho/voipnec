@@ -242,32 +242,39 @@ export function useSoftphone(
   useEffect(() => {
     mountedRef.current = true;
 
-    if (!extension || !password) {
+    if (!extension || !password || !server) {
       return;
     }
 
-    const config = createJsSIPConfig(server, extension, password);
+    let ua: JsSIP.UA | null = null;
 
-    // Create the WebSocket interface
-    const socket = new JsSIP.WebSocketInterface(config.ws_servers);
+    try {
+      const config = createJsSIPConfig(server, extension, password);
 
-    // Build the UA configuration
-    const uaConfig = {
-      sockets: [socket],
-      uri: config.uri,
-      password: config.password,
-      display_name: config.display_name,
-      register: config.register,
-      session_timers: config.session_timers,
-      connection_recovery_min_interval: config.connection_recovery_min_interval,
-      connection_recovery_max_interval: config.connection_recovery_max_interval,
-      user_agent: config.user_agent,
-      registrar_server: config.registrar_server,
-      contact_uri: config.contact_uri,
-    };
+      // Create the WebSocket interface
+      const socket = new JsSIP.WebSocketInterface(config.ws_servers);
 
-    const ua = new JsSIP.UA(uaConfig);
-    uaRef.current = ua;
+      // Build the UA configuration
+      const uaConfig = {
+        sockets: [socket],
+        uri: config.uri,
+        password: config.password,
+        display_name: config.display_name,
+        register: config.register,
+        session_timers: config.session_timers,
+        connection_recovery_min_interval: config.connection_recovery_min_interval,
+        connection_recovery_max_interval: config.connection_recovery_max_interval,
+        user_agent: config.user_agent,
+        registrar_server: config.registrar_server,
+        contact_uri: config.contact_uri,
+      };
+
+      ua = new JsSIP.UA(uaConfig);
+      uaRef.current = ua;
+    } catch (err) {
+      console.error('[useSoftphone] Failed to create JsSIP UA:', err);
+      return;
+    }
 
     // ── UA events ────────────────────────────────────────────────
 
@@ -332,7 +339,12 @@ export function useSoftphone(
     });
 
     // Start the UA
-    ua.start();
+    try {
+      ua.start();
+    } catch (err) {
+      console.error('[useSoftphone] Failed to start JsSIP UA:', err);
+      return;
+    }
 
     // Cleanup on unmount
     return () => {
@@ -349,7 +361,11 @@ export function useSoftphone(
         sessionRef.current = null;
       }
 
-      ua.stop();
+      try {
+        ua.stop();
+      } catch {
+        // UA may already be stopped
+      }
       uaRef.current = null;
     };
   }, [extension, password, server, setupSessionEvents, stopTimer]);

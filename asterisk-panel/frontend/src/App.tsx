@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Component, type ErrorInfo, type ReactNode } from 'react';
 import {
   LayoutDashboard,
   PhoneCall,
@@ -91,8 +91,6 @@ function loadSoftphoneConfig(): { extension: string; sipPassword: string; wsUrl:
 }
 
 // ── Error Boundary ────────────────────────────────────────────────────
-
-import { Component, type ErrorInfo, type ReactNode } from 'react';
 
 class ErrorBoundary extends Component<
   { children: ReactNode; fallback?: ReactNode },
