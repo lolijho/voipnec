@@ -362,7 +362,9 @@ export async function logout(): Promise<void> {
 }
 
 export async function getMe(): Promise<UserInfo> {
-  return apiRequest<UserInfo>('GET', '/api/auth/me');
+  const res = await apiRequest<{ user: UserInfo } | UserInfo>('GET', '/api/auth/me');
+  if ('user' in res && res.user) return res.user;
+  return res as UserInfo;
 }
 
 export async function changePassword(
@@ -378,7 +380,8 @@ export async function changePassword(
 // ── Active Calls ──────────────────────────────────────────────────────
 
 export async function getActiveCalls(): Promise<ActiveCall[]> {
-  return apiRequest<ActiveCall[]>('GET', '/api/calls/active');
+  const res = await apiRequest<{ calls: ActiveCall[] } | ActiveCall[]>('GET', '/api/calls/active');
+  return Array.isArray(res) ? res : (res.calls || []);
 }
 
 export async function originateCall(
@@ -474,7 +477,9 @@ export async function getCallStats(
   const path = period
     ? `/api/calls/stats?period=${encodeURIComponent(period)}`
     : '/api/calls/stats';
-  return apiRequest<CallStats>('GET', path);
+  const res = await apiRequest<{ stats: CallStats } | CallStats>('GET', path);
+  if ('stats' in res && res.stats) return res.stats;
+  return res as CallStats;
 }
 
 export async function exportCallsCSV(
@@ -515,7 +520,8 @@ export async function stopRecording(
 // ── Extensions ────────────────────────────────────────────────────────
 
 export async function getExtensions(): Promise<Extension[]> {
-  return apiRequest<Extension[]>('GET', '/api/extensions');
+  const res = await apiRequest<{ extensions: Extension[] } | Extension[]>('GET', '/api/extensions');
+  return Array.isArray(res) ? res : (res.extensions || []);
 }
 
 export async function getExtension(id: number): Promise<Extension> {
@@ -553,7 +559,8 @@ export async function getExtensionStatus(
 // ── Trunks ────────────────────────────────────────────────────────────
 
 export async function getTrunks(): Promise<Trunk[]> {
-  return apiRequest<Trunk[]>('GET', '/api/trunks');
+  const res = await apiRequest<{ trunks: Trunk[] } | Trunk[]>('GET', '/api/trunks');
+  return Array.isArray(res) ? res : (res.trunks || []);
 }
 
 export async function getTrunk(id: number): Promise<Trunk> {
