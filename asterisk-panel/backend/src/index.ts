@@ -4,6 +4,7 @@ dotenv.config();
 import express from 'express';
 import cors from 'cors';
 import http from 'http';
+import path from 'path';
 import rateLimit from 'express-rate-limit';
 import { Server as SocketIOServer } from 'socket.io';
 import { logger } from './logger';
@@ -189,9 +190,26 @@ function initializeServices(): void {
 
 initializeServices();
 
+// ── Serve Frontend Static Files ───────────────────────────────────────────────
+
+const frontendPath = path.join(__dirname, '..', 'public');
+app.use(express.static(frontendPath));
+
+// SPA fallback: serve index.html for non-API routes
+app.get('*', (_req, res, next) => {
+  if (_req.path.startsWith('/api') || _req.path.startsWith('/socket.io')) {
+    return next();
+  }
+  res.sendFile(path.join(frontendPath, 'index.html'), (err) => {
+    if (err) {
+      next();
+    }
+  });
+});
+
 // ── Error Handling ─────────────────────────────────────────────────────────────
 
-// 404 handler
+// 404 handler (only API routes reach here)
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
