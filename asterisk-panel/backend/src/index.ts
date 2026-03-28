@@ -15,6 +15,9 @@ import { verifyToken, JwtPayload } from './middleware/auth';
 
 const app = express();
 
+// Trust proxy (behind Coolify/nginx reverse proxy)
+app.set('trust proxy', 1);
+
 // CORS configuration
 const corsOrigin = process.env.CORS_ORIGIN || '*';
 app.use(
@@ -140,9 +143,16 @@ let trunkService: any = null;
 
 try {
   const { AmiService } = require('./services/AmiService');
-  amiService = new AmiService(io);
+  const amiConfig = {
+    host: process.env.ASTERISK_HOST || '127.0.0.1',
+    port: parseInt(process.env.ASTERISK_AMI_PORT || '5038', 10),
+    user: process.env.ASTERISK_AMI_USER || 'admin',
+    password: process.env.ASTERISK_AMI_PASSWORD || 'supersecret',
+  };
+  amiService = new AmiService(amiConfig, io);
+  amiService.connect();
   app.set('amiService', amiService);
-  logger.info('AMI service initialized');
+  logger.info('AMI service initialized', { host: amiConfig.host, port: amiConfig.port });
 } catch (err) {
   logger.warn('AMI service not available', {
     error: err instanceof Error ? err.message : 'Unknown error',
@@ -151,9 +161,15 @@ try {
 
 try {
   const { AriService } = require('./services/AriService');
-  ariService = new AriService(io);
+  const ariConfig = {
+    url: process.env.ASTERISK_ARI_URL || 'http://127.0.0.1:8088',
+    user: process.env.ASTERISK_ARI_USER || 'ariuser',
+    password: process.env.ASTERISK_ARI_PASSWORD || 'arisecret',
+  };
+  ariService = new AriService(ariConfig, io);
+  ariService.connect();
   app.set('ariService', ariService);
-  logger.info('ARI service initialized');
+  logger.info('ARI service initialized', { url: ariConfig.url });
 } catch (err) {
   logger.warn('ARI service not available', {
     error: err instanceof Error ? err.message : 'Unknown error',
