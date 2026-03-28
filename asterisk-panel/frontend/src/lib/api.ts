@@ -161,17 +161,9 @@ export interface Trunk {
 
 export interface CreateTrunkData {
   name: string;
-  type: 'sip' | 'pjsip' | 'iax2';
-  host: string;
-  port?: number;
-  username: string;
-  secret: string;
-  context?: string;
-  codecs?: string[];
-  maxChannels?: number;
-  outboundCallerId?: string;
-  transport?: string;
-  qualify?: boolean;
+  provider: 'messagenet' | 'twilio' | 'generic';
+  config: Record<string, unknown>;
+  enabled?: boolean;
 }
 
 export interface UpdateTrunkData extends Partial<CreateTrunkData> {}

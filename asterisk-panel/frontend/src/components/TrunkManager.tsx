@@ -122,16 +122,17 @@ const emptyGenerico: GenericoFormData = {
 function buildTrunkFromMessageNet(form: MessageNetFormData): CreateTrunkData {
   return {
     name: `messagenet-${form.username}`,
-    type: 'pjsip',
-    host: 'sip.messagenet.it',
-    port: 5060,
-    username: form.username,
-    secret: form.password,
-    context: 'from-trunk',
-    codecs: form.codecs.split(',').map((c) => c.trim()).filter(Boolean),
-    outboundCallerId: form.did,
-    transport: 'udp',
-    qualify: true,
+    provider: 'messagenet',
+    config: {
+      username: form.username,
+      password: form.password,
+      server: 'sip.messagenet.it',
+      port: 5060,
+      did: form.did,
+      codecs: form.codecs.split(',').map((c) => c.trim()).filter(Boolean),
+      transport: 'udp',
+    },
+    enabled: true,
   };
 }
 
@@ -142,32 +143,41 @@ function buildTrunkFromTwilio(form: TwilioFormData): CreateTrunkData {
       : `${form.trunkSid}.pstn.twilio.com`;
   return {
     name: `twilio-${form.trunkSid.slice(-6)}`,
-    type: 'pjsip',
-    host: regionHost,
-    port: 5060,
-    username: form.accountSid,
-    secret: form.authToken,
-    context: 'from-trunk',
-    codecs: ['ulaw', 'alaw'],
-    outboundCallerId: form.number,
-    transport: 'udp',
-    qualify: true,
+    provider: 'twilio',
+    config: {
+      accountSid: form.accountSid,
+      authToken: form.authToken,
+      trunkSid: form.trunkSid,
+      server: regionHost,
+      number: form.number,
+      region: form.region,
+      codecs: ['ulaw', 'alaw'],
+      transport: 'tls',
+    },
+    enabled: true,
   };
 }
 
 function buildTrunkFromGenerico(form: GenericoFormData): CreateTrunkData {
   return {
     name: form.providerName.toLowerCase().replace(/[^a-z0-9_-]/g, '-'),
-    type: 'pjsip',
-    host: form.sipServer,
-    port: 5060,
-    username: form.username,
-    secret: form.password,
-    context: 'from-trunk',
-    codecs: form.codecs.split(',').map((c) => c.trim()).filter(Boolean),
-    outboundCallerId: form.did,
-    transport: form.transport,
-    qualify: true,
+    provider: 'generic',
+    config: {
+      username: form.username,
+      password: form.password,
+      server: form.sipServer,
+      sipProxy: form.sipProxy,
+      port: 5060,
+      did: form.did,
+      realm: form.realm,
+      codecs: form.codecs.split(',').map((c) => c.trim()).filter(Boolean),
+      transport: form.transport,
+      dtmfMode: form.dtmfMode,
+      natTraversal: form.nat,
+      registration: form.register,
+      prefixOut: form.outboundPrefix,
+    },
+    enabled: true,
   };
 }
 
@@ -403,7 +413,7 @@ export default function TrunkManager() {
 
   async function handleToggleEnabled(trunk: Trunk) {
     try {
-      await updateTrunk(trunk.id, { name: trunk.name, type: trunk.type, host: trunk.host, username: trunk.username, secret: '' });
+      await updateTrunk(trunk.id, { enabled: !trunk.enabled });
       fetchTrunks();
     } catch {
       // silent
