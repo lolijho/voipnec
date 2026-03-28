@@ -5,6 +5,7 @@ import express from 'express';
 import cors from 'cors';
 import http from 'http';
 import path from 'path';
+import WebSocket, { WebSocketServer } from 'ws';
 import rateLimit from 'express-rate-limit';
 import { Server as SocketIOServer } from 'socket.io';
 import { logger } from './logger';
@@ -111,6 +112,105 @@ io.on('connection', (socket) => {
 // Make io accessible to routes
 app.set('io', io);
 
+// ── WebSocket SIP Proxy ───────────────────────────────────────────────────────
+
+const ASTERISK_HOST = process.env.ASTERISK_HOST || '127.0.0.1';
+const ASTERISK_WS_URL =
+  process.env.ASTERISK_WS_URL || `wss://${ASTERISK_HOST}:8089/ws`;
+
+const wss = new WebSocketServer({ noServer: true });
+
+server.on('upgrade', (req, socket, head) => {
+  // Let Socket.io handle its own upgrades
+  if (req.url?.startsWith('/socket.io')) return;
+
+  if (req.url === '/ws-sip-proxy') {
+    wss.handleUpgrade(req, socket, head, (browserWs) => {
+      wss.emit('connection', browserWs, req);
+    });
+  } else {
+    socket.destroy();
+  }
+});
+
+wss.on('connection', (browserWs, req) => {
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+  logger.info('SIP WS proxy: browser connected', { clientIp });
+
+  // Buffer messages until Asterisk connection is open
+  const pendingMessages: (string | Buffer)[] = [];
+  let asteriskReady = false;
+
+  const asteriskWs = new WebSocket(ASTERISK_WS_URL, 'sip', {
+    rejectUnauthorized: false, // allow self-signed certs on Asterisk
+  });
+
+  asteriskWs.on('open', () => {
+    logger.info('SIP WS proxy: connected to Asterisk', { url: ASTERISK_WS_URL });
+    asteriskReady = true;
+    // Flush buffered messages
+    for (const msg of pendingMessages) {
+      asteriskWs.send(msg);
+    }
+    pendingMessages.length = 0;
+  });
+
+  // Bridge: Asterisk → Browser
+  asteriskWs.on('message', (data) => {
+    if (browserWs.readyState === WebSocket.OPEN) {
+      browserWs.send(data);
+    }
+  });
+
+  // Bridge: Browser → Asterisk
+  browserWs.on('message', (data) => {
+    if (asteriskReady && asteriskWs.readyState === WebSocket.OPEN) {
+      asteriskWs.send(data);
+    } else {
+      pendingMessages.push(data as string | Buffer);
+    }
+  });
+
+  // Keepalive pings every 15 seconds
+  const pingInterval = setInterval(() => {
+    if (browserWs.readyState === WebSocket.OPEN) {
+      browserWs.ping();
+    }
+    if (asteriskWs.readyState === WebSocket.OPEN) {
+      asteriskWs.ping();
+    }
+  }, 15_000);
+
+  // Close handling helper – code 1006 cannot be sent, convert to 1011
+  function safeCloseCode(code: number): number {
+    return code === 1006 ? 1011 : code;
+  }
+
+  browserWs.on('close', (code, reason) => {
+    logger.info('SIP WS proxy: browser disconnected', { clientIp, code });
+    clearInterval(pingInterval);
+    if (asteriskWs.readyState === WebSocket.OPEN || asteriskWs.readyState === WebSocket.CONNECTING) {
+      asteriskWs.close(safeCloseCode(code), reason);
+    }
+  });
+
+  asteriskWs.on('close', (code, reason) => {
+    logger.info('SIP WS proxy: Asterisk disconnected', { code });
+    clearInterval(pingInterval);
+    if (browserWs.readyState === WebSocket.OPEN || browserWs.readyState === WebSocket.CONNECTING) {
+      browserWs.close(safeCloseCode(code), reason);
+    }
+  });
+
+  browserWs.on('error', (err) => {
+    logger.error('SIP WS proxy: browser WS error', { error: err.message });
+  });
+
+  asteriskWs.on('error', (err) => {
+    logger.error('SIP WS proxy: Asterisk WS error', { error: err.message });
+  });
+});
+
 // ── Database Initialization ────────────────────────────────────────────────────
 
 let db: ReturnType<typeof initializeDatabase>;
@@ -131,6 +231,17 @@ app.get('/api/health', (_req, res) => {
     status: 'ok',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
+  });
+});
+
+// SIP WebRTC configuration endpoint
+app.get('/api/asterisk/sip-config', (req, res) => {
+  const host = req.get('host') || 'localhost';
+  const asteriskHost = process.env.ASTERISK_HOST || '127.0.0.1';
+  res.json({
+    wsUrl: `wss://${host}/ws-sip-proxy`,
+    domain: asteriskHost,
+    stunServers: ['stun:stun.l.google.com:19302'],
   });
 });
 

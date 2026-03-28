@@ -87,7 +87,7 @@ function loadSoftphoneConfig(): { extension: string; sipPassword: string; wsUrl:
   } catch {
     // ignore
   }
-  return { extension: '', sipPassword: '', wsUrl: '' };
+  return { extension: '101', sipPassword: 'Maddy210521', wsUrl: '' };
 }
 
 // ── Error Boundary ────────────────────────────────────────────────────

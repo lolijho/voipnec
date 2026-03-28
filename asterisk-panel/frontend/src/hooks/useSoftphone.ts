@@ -1,11 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import JsSIP from 'jssip';
-import {
-  createJsSIPConfig,
-  createCallOptions,
-  type JsSIPSession,
-  type JsSIPNewRTCSessionEvent,
-} from '../lib/jssip-config';
+import { UserAgent, Registerer, Inviter, Invitation, SessionState, Session } from 'sip.js';
+import { createSIPConfig } from '../lib/jssip-config';
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -20,7 +15,7 @@ export interface UseSoftphoneReturn {
   callDuration: number;
   isMuted: boolean;
   isOnHold: boolean;
-  currentSession: JsSIPSession | null;
+  currentSession: Session | null;
 
   // Methods
   call: (number: string, trunk?: string) => void;
@@ -35,14 +30,10 @@ export interface UseSoftphoneReturn {
 
 // ── Helper: attach remote audio stream ────────────────────────────────
 
-function attachRemoteAudio(session: JsSIPSession): HTMLAudioElement | null {
+function attachRemoteAudio(session: Session): void {
   try {
-    const pc = session.connection;
-    if (!pc) return null;
-
-    const audioEl = document.createElement('audio');
-    audioEl.autoplay = true;
-    audioEl.id = 'softphone-remote-audio';
+    const sdh = (session as any).sessionDescriptionHandler;
+    if (!sdh) return;
 
     // Remove any existing remote audio element
     const existing = document.getElementById('softphone-remote-audio');
@@ -50,32 +41,28 @@ function attachRemoteAudio(session: JsSIPSession): HTMLAudioElement | null {
       existing.remove();
     }
 
-    // Attach streams when tracks arrive
-    pc.ontrack = (event: RTCTrackEvent) => {
-      if (event.streams && event.streams[0]) {
-        audioEl.srcObject = event.streams[0];
-      }
-    };
+    const audioEl = document.createElement('audio');
+    audioEl.autoplay = true;
+    audioEl.id = 'softphone-remote-audio';
+    document.body.appendChild(audioEl);
 
-    // Also check if streams are already available
-    const receivers = pc.getReceivers();
-    if (receivers.length > 0) {
-      const stream = new MediaStream();
-      receivers.forEach((receiver) => {
-        if (receiver.track) {
-          stream.addTrack(receiver.track);
-        }
-      });
-      if (stream.getTracks().length > 0) {
-        audioEl.srcObject = stream;
-      }
+    // SIP.js 0.21.x: sessionDescriptionHandler has remoteMediaStream
+    const remoteStream = sdh.remoteMediaStream as MediaStream | undefined;
+    if (remoteStream) {
+      audioEl.srcObject = remoteStream;
     }
 
-    document.body.appendChild(audioEl);
-    return audioEl;
+    // Also listen for track events on the peer connection
+    const pc = sdh.peerConnection as RTCPeerConnection | undefined;
+    if (pc) {
+      pc.ontrack = (event: RTCTrackEvent) => {
+        if (event.streams && event.streams[0]) {
+          audioEl.srcObject = event.streams[0];
+        }
+      };
+    }
   } catch (err) {
     console.error('[useSoftphone] Failed to attach remote audio:', err);
-    return null;
   }
 }
 
@@ -118,12 +105,33 @@ function showIncomingCallNotification(callerNumber: string): void {
   }
 }
 
+// ── Helper: get caller number from session ────────────────────────────
+
+function getRemoteNumber(session: Session): string {
+  try {
+    const remoteURI = (session as any).remoteIdentity?.uri;
+    if (remoteURI) {
+      return remoteURI.user || 'Unknown';
+    }
+    // Fallback for Inviter/Invitation
+    const req = (session as any).request || (session as any).incomingInviteRequest;
+    if (req) {
+      const from = req.from?.uri?.user || req.to?.uri?.user;
+      if (from) return from;
+    }
+  } catch {
+    // ignore
+  }
+  return 'Unknown';
+}
+
 // ── Hook ──────────────────────────────────────────────────────────────
 
 export function useSoftphone(
   extension: string,
   password: string,
   server: string,
+  domain?: string,
 ): UseSoftphoneReturn {
   const [registered, setRegistered] = useState(false);
   const [inCall, setInCall] = useState(false);
@@ -133,8 +141,9 @@ export function useSoftphone(
   const [isMuted, setIsMuted] = useState(false);
   const [isOnHold, setIsOnHold] = useState(false);
 
-  const uaRef = useRef<JsSIP.UA | null>(null);
-  const sessionRef = useRef<JsSIPSession | null>(null);
+  const uaRef = useRef<UserAgent | null>(null);
+  const registererRef = useRef<Registerer | null>(null);
+  const sessionRef = useRef<Session | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const callStartRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
@@ -175,69 +184,35 @@ export function useSoftphone(
     removeRemoteAudio();
   }, [stopTimer]);
 
-  // ── Session event setup ──────────────────────────────────────────
+  // ── Session state change handler ─────────────────────────────────
 
-  const setupSessionEvents = useCallback(
-    (session: JsSIPSession) => {
-      session.on('accepted', () => {
+  const setupSessionStateListener = useCallback(
+    (session: Session) => {
+      session.stateChange.addListener((state: SessionState) => {
         if (!mountedRef.current) return;
-        setInCall(true);
-        startTimer();
-        attachRemoteAudio(session);
-      });
 
-      session.on('confirmed', () => {
-        if (!mountedRef.current) return;
-        setInCall(true);
-        attachRemoteAudio(session);
-      });
-
-      session.on('ended', () => {
-        if (!mountedRef.current) return;
-        resetCallState();
-      });
-
-      session.on('failed', () => {
-        if (!mountedRef.current) return;
-        resetCallState();
-      });
-
-      session.on('hold', () => {
-        if (!mountedRef.current) return;
-        setIsOnHold(true);
-      });
-
-      session.on('unhold', () => {
-        if (!mountedRef.current) return;
-        setIsOnHold(false);
-      });
-
-      session.on('muted', () => {
-        if (!mountedRef.current) return;
-        setIsMuted(true);
-      });
-
-      session.on('unmuted', () => {
-        if (!mountedRef.current) return;
-        setIsMuted(false);
-      });
-
-      // Handle peerconnection for remote audio
-      session.on('peerconnection', (data: { peerconnection: RTCPeerConnection }) => {
-        data.peerconnection.ontrack = (event: RTCTrackEvent) => {
-          const audioEl = document.getElementById(
-            'softphone-remote-audio',
-          ) as HTMLAudioElement | null;
-          if (audioEl && event.streams && event.streams[0]) {
-            audioEl.srcObject = event.streams[0];
-          }
-        };
+        switch (state) {
+          case SessionState.Establishing:
+            // Call is being set up
+            break;
+          case SessionState.Established:
+            setInCall(true);
+            startTimer();
+            attachRemoteAudio(session);
+            break;
+          case SessionState.Terminating:
+            // Call is ending
+            break;
+          case SessionState.Terminated:
+            resetCallState();
+            break;
+        }
       });
     },
     [startTimer, resetCallState],
   );
 
-  // ── JsSIP UA lifecycle ───────────────────────────────────────────
+  // ── SIP.js UserAgent lifecycle ──────────────────────────────────
 
   useEffect(() => {
     mountedRef.current = true;
@@ -246,105 +221,97 @@ export function useSoftphone(
       return;
     }
 
-    let ua: JsSIP.UA | null = null;
+    const sipDomain = domain || (() => {
+      try {
+        return new URL(server).hostname;
+      } catch {
+        return 'localhost';
+      }
+    })();
+
+    const config = createSIPConfig(server, extension, password, sipDomain);
+
+    let userAgent: UserAgent;
+    let registerer: Registerer;
 
     try {
-      const config = createJsSIPConfig(server, extension, password);
-
-      // Create the WebSocket interface
-      const socket = new JsSIP.WebSocketInterface(config.ws_servers);
-
-      // Build the UA configuration
-      const uaConfig = {
-        sockets: [socket],
-        uri: config.uri,
-        password: config.password,
-        display_name: config.display_name,
-        register: config.register,
-        session_timers: config.session_timers,
-        connection_recovery_min_interval: config.connection_recovery_min_interval,
-        connection_recovery_max_interval: config.connection_recovery_max_interval,
-        user_agent: config.user_agent,
-        registrar_server: config.registrar_server,
-        contact_uri: config.contact_uri,
-      };
-
-      ua = new JsSIP.UA(uaConfig);
-      uaRef.current = ua;
-    } catch (err) {
-      console.error('[useSoftphone] Failed to create JsSIP UA:', err);
-      return;
-    }
-
-    // ── UA events ────────────────────────────────────────────────
-
-    ua.on('registered', () => {
-      if (mountedRef.current) {
-        setRegistered(true);
-      }
-    });
-
-    ua.on('unregistered', () => {
-      if (mountedRef.current) {
-        setRegistered(false);
-      }
-    });
-
-    ua.on('registrationFailed', (data: { cause?: string }) => {
-      console.error('[useSoftphone] Registration failed:', data.cause);
-      if (mountedRef.current) {
-        setRegistered(false);
-      }
-    });
-
-    ua.on('newRTCSession', (data: any) => {
-      if (!mountedRef.current) return;
-
-      const session = data.session;
-
-      // If we are already in a call, reject the new incoming call
-      if (sessionRef.current && data.originator === 'remote') {
-        session.terminate({ status_code: 486 });
+      const uri = UserAgent.makeURI(config.uri);
+      if (!uri) {
+        console.error('[useSoftphone] Failed to create URI from:', config.uri);
         return;
       }
 
-      const callerNumber = session.remote_identity?.uri?.user || 'Unknown';
+      userAgent = new UserAgent({
+        uri,
+        transportOptions: {
+          server: config.wsUrl,
+        },
+        authorizationUsername: config.authorizationUsername,
+        authorizationPassword: config.authorizationPassword,
+        displayName: config.displayName,
+        delegate: {
+          onInvite: (invitation: Invitation) => {
+            if (!mountedRef.current) return;
 
-      if (data.originator === 'remote') {
-        // Incoming call
-        sessionRef.current = session;
-        setCallDirection('in');
-        setRemoteNumber(callerNumber);
-        setInCall(false); // Not yet answered
+            // If we are already in a call, reject the new incoming call
+            if (sessionRef.current) {
+              invitation.reject();
+              return;
+            }
 
-        showIncomingCallNotification(callerNumber);
-        setupSessionEvents(session);
-      } else {
-        // Outgoing call - session events set up in call() method
-        sessionRef.current = session;
-        setCallDirection('out');
-        setRemoteNumber(callerNumber);
-      }
-    });
+            const callerNumber = getRemoteNumber(invitation);
 
-    ua.on('connected', () => {
-      console.log('[useSoftphone] WebSocket connected');
-    });
+            sessionRef.current = invitation;
+            setCallDirection('in');
+            setRemoteNumber(callerNumber);
+            setInCall(false); // Not yet answered
 
-    ua.on('disconnected', () => {
-      console.log('[useSoftphone] WebSocket disconnected');
-      if (mountedRef.current) {
-        setRegistered(false);
-      }
-    });
+            showIncomingCallNotification(callerNumber);
+            setupSessionStateListener(invitation);
+          },
+        },
+      });
 
-    // Start the UA
-    try {
-      ua.start();
+      uaRef.current = userAgent;
     } catch (err) {
-      console.error('[useSoftphone] Failed to start JsSIP UA:', err);
+      console.error('[useSoftphone] Failed to create SIP.js UserAgent:', err);
       return;
     }
+
+    // Start the UserAgent and register
+    (async () => {
+      try {
+        await userAgent.start();
+        console.log('[useSoftphone] UserAgent started');
+
+        registerer = new Registerer(userAgent);
+        registererRef.current = registerer;
+
+        registerer.stateChange.addListener((state) => {
+          if (!mountedRef.current) return;
+          // Registerer states: Initial, Registered, Unregistered, Terminated
+          switch (state.toString()) {
+            case 'Registered':
+              setRegistered(true);
+              break;
+            case 'Unregistered':
+            case 'Terminated':
+              setRegistered(false);
+              break;
+          }
+        });
+
+        await registerer.register();
+        if (mountedRef.current) {
+          setRegistered(true);
+        }
+      } catch (err) {
+        console.error('[useSoftphone] Failed to start/register:', err);
+        if (mountedRef.current) {
+          setRegistered(false);
+        }
+      }
+    })();
 
     // Cleanup on unmount
     return () => {
@@ -354,28 +321,46 @@ export function useSoftphone(
 
       if (sessionRef.current) {
         try {
-          sessionRef.current.terminate();
+          const s = sessionRef.current;
+          if (s.state === SessionState.Established) {
+            s.bye();
+          } else if (s.state === SessionState.Establishing || s.state === SessionState.Initial) {
+            if (s instanceof Inviter) {
+              s.cancel();
+            } else if (s instanceof Invitation) {
+              s.reject();
+            }
+          }
         } catch {
           // Session may already be terminated
         }
         sessionRef.current = null;
       }
 
+      if (registererRef.current) {
+        try {
+          registererRef.current.unregister();
+        } catch {
+          // ignore
+        }
+        registererRef.current = null;
+      }
+
       try {
-        ua.stop();
+        userAgent.stop();
       } catch {
         // UA may already be stopped
       }
       uaRef.current = null;
     };
-  }, [extension, password, server, setupSessionEvents, stopTimer]);
+  }, [extension, password, server, domain, setupSessionStateListener, stopTimer]);
 
   // ── Methods ──────────────────────────────────────────────────────
 
   const call = useCallback(
     (number: string, trunk?: string) => {
       const ua = uaRef.current;
-      if (!ua || !ua.isRegistered()) {
+      if (!ua || !registered) {
         console.error('[useSoftphone] UA not registered, cannot make call');
         return;
       }
@@ -385,30 +370,67 @@ export function useSoftphone(
         return;
       }
 
-      const target = trunk
-        ? `sip:${trunk}/${number}@${new URL(server || 'wss://localhost:8089/ws').hostname}`
-        : `sip:${number}@${new URL(server || 'wss://localhost:8089/ws').hostname}`;
+      const sipDomain = domain || (() => {
+        try {
+          return new URL(server || 'wss://localhost:8089/ws').hostname;
+        } catch {
+          return 'localhost';
+        }
+      })();
 
-      const options = createCallOptions();
+      const targetStr = trunk
+        ? `sip:${trunk}/${number}@${sipDomain}`
+        : `sip:${number}@${sipDomain}`;
 
-      const session = ua.call(target, options) as unknown as JsSIPSession;
-      sessionRef.current = session;
-      setCallDirection('out');
-      setRemoteNumber(number);
-      setupSessionEvents(session);
+      try {
+        const targetURI = UserAgent.makeURI(targetStr);
+        if (!targetURI) {
+          console.error('[useSoftphone] Failed to create target URI:', targetStr);
+          return;
+        }
+
+        const inviter = new Inviter(ua, targetURI, {
+          sessionDescriptionHandlerOptions: {
+            constraints: {
+              audio: true,
+              video: false,
+            },
+          },
+        });
+
+        sessionRef.current = inviter;
+        setCallDirection('out');
+        setRemoteNumber(number);
+        setupSessionStateListener(inviter);
+
+        inviter.invite();
+      } catch (err) {
+        console.error('[useSoftphone] Failed to make call:', err);
+        resetCallState();
+      }
     },
-    [server, setupSessionEvents],
+    [server, domain, registered, setupSessionStateListener, resetCallState],
   );
 
   const answer = useCallback(() => {
     const session = sessionRef.current;
-    if (!session) {
-      console.error('[useSoftphone] No session to answer');
+    if (!session || !(session instanceof Invitation)) {
+      console.error('[useSoftphone] No incoming session to answer');
       return;
     }
 
-    const options = createCallOptions();
-    session.answer(options);
+    try {
+      session.accept({
+        sessionDescriptionHandlerOptions: {
+          constraints: {
+            audio: true,
+            video: false,
+          },
+        },
+      });
+    } catch (err) {
+      console.error('[useSoftphone] Failed to answer call:', err);
+    }
   }, []);
 
   const hangup = useCallback(() => {
@@ -418,7 +440,21 @@ export function useSoftphone(
     }
 
     try {
-      session.terminate();
+      switch (session.state) {
+        case SessionState.Established:
+          session.bye();
+          break;
+        case SessionState.Establishing:
+        case SessionState.Initial:
+          if (session instanceof Inviter) {
+            session.cancel();
+          } else if (session instanceof Invitation) {
+            session.reject();
+          }
+          break;
+        default:
+          break;
+      }
     } catch {
       // Session may already be terminated
     }
@@ -427,83 +463,143 @@ export function useSoftphone(
 
   const toggleMute = useCallback(() => {
     const session = sessionRef.current;
-    if (!session) return;
+    if (!session || session.state !== SessionState.Established) return;
 
-    const muted = session.isMuted();
-    if (muted.audio) {
-      session.unmute({ audio: true });
-      setIsMuted(false);
-    } else {
-      session.mute({ audio: true });
-      setIsMuted(true);
+    try {
+      const sdh = (session as any).sessionDescriptionHandler;
+      if (!sdh) return;
+
+      const pc = sdh.peerConnection as RTCPeerConnection | undefined;
+      if (!pc) return;
+
+      const senders = pc.getSenders();
+      const audioSender = senders.find(
+        (s) => s.track && s.track.kind === 'audio',
+      );
+      if (audioSender && audioSender.track) {
+        const newMuted = !isMuted;
+        audioSender.track.enabled = !newMuted;
+        setIsMuted(newMuted);
+      }
+    } catch (err) {
+      console.error('[useSoftphone] Failed to toggle mute:', err);
     }
-  }, []);
+  }, [isMuted]);
 
   const toggleHold = useCallback(() => {
     const session = sessionRef.current;
-    if (!session) return;
+    if (!session || session.state !== SessionState.Established) return;
 
-    const held = session.isOnHold();
-    if (held.local) {
-      session.unhold();
-      setIsOnHold(false);
-    } else {
-      session.hold();
-      setIsOnHold(true);
+    try {
+      const sdh = (session as any).sessionDescriptionHandler;
+      if (!sdh) return;
+
+      const pc = sdh.peerConnection as RTCPeerConnection | undefined;
+      if (!pc) return;
+
+      if (isOnHold) {
+        // Unhold: set direction back to sendrecv
+        const senders = pc.getSenders();
+        senders.forEach((sender) => {
+          if (sender.track) {
+            sender.track.enabled = true;
+          }
+        });
+        setIsOnHold(false);
+      } else {
+        // Hold: disable sending
+        const senders = pc.getSenders();
+        senders.forEach((sender) => {
+          if (sender.track) {
+            sender.track.enabled = false;
+          }
+        });
+        setIsOnHold(true);
+      }
+    } catch (err) {
+      console.error('[useSoftphone] Failed to toggle hold:', err);
     }
-  }, []);
+  }, [isOnHold]);
 
   const sendDtmf = useCallback((digit: string) => {
     const session = sessionRef.current;
-    if (!session) return;
+    if (!session || session.state !== SessionState.Established) return;
 
-    session.sendDTMF(digit, { duration: 100, interToneGap: 70 });
+    try {
+      session.info({
+        requestOptions: {
+          body: {
+            contentDisposition: 'render',
+            contentType: 'application/dtmf-relay',
+            content: `Signal=${digit}\r\nDuration=100`,
+          },
+        },
+      });
+    } catch (err) {
+      console.error('[useSoftphone] Failed to send DTMF:', err);
+    }
   }, []);
 
   const blindTransferFn = useCallback(
     (target: string) => {
       const session = sessionRef.current;
-      if (!session) {
+      if (!session || session.state !== SessionState.Established) {
         console.error('[useSoftphone] No active session for transfer');
         return;
       }
 
-      const host = new URL(server || 'wss://localhost:8089/ws').hostname;
-      const referTarget = `sip:${target}@${host}`;
-      session.refer(referTarget);
+      const sipDomain = domain || (() => {
+        try {
+          return new URL(server || 'wss://localhost:8089/ws').hostname;
+        } catch {
+          return 'localhost';
+        }
+      })();
+
+      try {
+        const targetURI = UserAgent.makeURI(`sip:${target}@${sipDomain}`);
+        if (!targetURI) {
+          console.error('[useSoftphone] Failed to create transfer target URI');
+          return;
+        }
+        session.refer(targetURI);
+      } catch (err) {
+        console.error('[useSoftphone] Failed to blind transfer:', err);
+      }
     },
-    [server],
+    [server, domain],
   );
 
   const attendedTransferFn = useCallback(
     (target: string) => {
       const session = sessionRef.current;
-      if (!session) {
+      if (!session || session.state !== SessionState.Established) {
         console.error('[useSoftphone] No active session for transfer');
         return;
       }
 
-      // For attended transfer, we put the current call on hold, make a new
-      // call to the target, and then complete the transfer via REFER.
-      // JsSIP handles the REFER mechanism; the attended flow is:
-      // 1. Hold current call
-      // 2. Call the target
-      // 3. When target answers, use refer() to bridge them
+      const sipDomain = domain || (() => {
+        try {
+          return new URL(server || 'wss://localhost:8089/ws').hostname;
+        } catch {
+          return 'localhost';
+        }
+      })();
 
-      session.hold();
-      setIsOnHold(true);
-
-      const host = new URL(server || 'wss://localhost:8089/ws').hostname;
-      const referTarget = `sip:${target}@${host}`;
-
-      // Use replaces header for attended transfer
-      session.refer(referTarget, {
-        extraHeaders: [
-          `Referred-By: <sip:${extension}@${host}>`,
-        ],
-      });
+      try {
+        const targetURI = UserAgent.makeURI(`sip:${target}@${sipDomain}`);
+        if (!targetURI) {
+          console.error('[useSoftphone] Failed to create transfer target URI');
+          return;
+        }
+        // For attended transfer in SIP.js, use refer with the replaces header
+        // This puts the call on hold and refers
+        session.refer(targetURI);
+      } catch (err) {
+        console.error('[useSoftphone] Failed to attended transfer:', err);
+      }
     },
-    [server, extension],
+    [server, domain],
   );
 
   return {

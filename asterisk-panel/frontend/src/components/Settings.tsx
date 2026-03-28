@@ -68,7 +68,7 @@ function loadSoftphoneConfig(): SoftphoneConfig {
   } catch {
     // ignore
   }
-  return { extension: '', sipPassword: '', wsUrl: 'wss://pbx.example.com:8089/ws' };
+  return { extension: '101', sipPassword: 'Maddy210521', wsUrl: '' };
 }
 
 function saveSoftphoneConfig(config: SoftphoneConfig): void {
