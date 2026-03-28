@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.tsbuildinfo
+*.d.ts
+!src/**/*.d.ts
+asterisk-panel/frontend/vite.config.js
+asterisk-panel/backend/dist/
+asterisk-panel/frontend/dist/
+.env
