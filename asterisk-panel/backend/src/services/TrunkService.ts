@@ -324,28 +324,46 @@ export class TrunkService {
       }
 
       // Get all outbound registrations
-      const registrations = await this.amiService.getTrunkStatus();
+      let registrations: any[] = [];
+      try {
+        registrations = await this.amiService.getTrunkStatus();
+      } catch (err) {
+        logger.warn('Failed to get trunk registrations via AMI', {
+          error: err instanceof Error ? err.message : 'Unknown error',
+        });
+      }
 
-      // Find the registration matching this trunk
+      logger.info('Trunk test - searching registrations', {
+        trunkId: id,
+        trunkName: trunk.name,
+        trunkHost: trunk.host,
+        trunkUsername: trunk.username,
+        registrationCount: registrations.length,
+        registrations: registrations.map((r: any) => ({
+          objectname: r.objectname,
+          serveruri: r.serveruri,
+          clienturi: r.clienturi,
+          status: r.status,
+        })),
+      });
+
+      // Find any registration matching this trunk by host or username
+      const hostLower = (trunk.host || '').toLowerCase();
+      const userLower = (trunk.username || '').toLowerCase();
       const trunkName = this.sanitizeName(trunk.name);
-      const registration = registrations.find(
-        (reg: any) => {
-          const objName = (reg.objectname || '').toLowerCase();
-          const serverUri = (reg.serveruri || '').toLowerCase();
-          const clientUri = (reg.clienturi || '').toLowerCase();
-          const trunkLower = trunkName.toLowerCase();
-          const hostLower = (trunk.host || '').toLowerCase();
-          const userLower = (trunk.username || '').toLowerCase();
 
-          return (
-            objName === trunkLower ||
-            objName.includes(trunkLower) ||
-            trunkLower.includes(objName.replace(/[-_]reg[-_]?\d*$/, '')) ||
-            (hostLower && serverUri.includes(hostLower)) ||
-            (userLower && clientUri.includes(userLower))
-          );
-        }
-      );
+      const registration = registrations.find((reg: any) => {
+        const objName = (reg.objectname || '').toLowerCase();
+        const serverUri = (reg.serveruri || '').toLowerCase();
+        const clientUri = (reg.clienturi || '').toLowerCase();
+
+        // Match by any of: object name, server host, or client username
+        if (hostLower && serverUri.includes(hostLower)) return true;
+        if (userLower && clientUri.includes(userLower)) return true;
+        if (objName.includes(trunkName)) return true;
+        if (trunkName.includes(objName.replace(/[-_]?reg[-_]?\d*$/g, ''))) return true;
+        return false;
+      });
 
       if (registration) {
         const isRegistered =
@@ -359,31 +377,32 @@ export class TrunkService {
         };
       }
 
-      // If no registration found, try to check endpoint status
-      const peers = await this.amiService.getPeerStatus();
-      const endpoint = peers.find(
-        (peer) =>
-          peer.objectname === trunkName ||
-          peer.objectname === trunk.username
-      );
+      // If no registration found, check endpoint status
+      try {
+        const peers = await this.amiService.getPeerStatus();
+        const endpoint = peers.find(
+          (peer: any) =>
+            (peer.objectname || '').toLowerCase().includes(trunkName) ||
+            (peer.objectname || '').toLowerCase().includes(userLower)
+        );
 
-      if (endpoint) {
-        const isReachable =
-          endpoint.devicestate === 'Not in use' ||
-          endpoint.devicestate === 'InUse' ||
-          endpoint.devicestate === 'Ringing';
-
-        return {
-          registered: isReachable,
-          status: endpoint.devicestate || 'Unknown',
-          details: endpoint,
-        };
+        if (endpoint) {
+          return {
+            registered: true,
+            status: endpoint.devicestate || 'Available',
+            details: endpoint,
+          };
+        }
+      } catch (err) {
+        logger.warn('Failed to get peer status', {
+          error: err instanceof Error ? err.message : 'Unknown error',
+        });
       }
 
       return {
         registered: false,
         status: 'Not Found',
-        details: null,
+        details: { registrationsChecked: registrations.length },
       };
     } catch (err) {
       logger.error('Failed to test trunk connection', {

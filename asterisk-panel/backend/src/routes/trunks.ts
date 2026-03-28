@@ -314,8 +314,8 @@ export function createRouter(deps: TrunksDeps): Router {
         return;
       }
 
-      if (trunkService && typeof trunkService.testTrunk === 'function') {
-        const result = await trunkService.testTrunk(id);
+      if (trunkService && typeof trunkService.testTrunkConnection === 'function') {
+        const result = await trunkService.testTrunkConnection(id);
         res.json({ message: 'Trunk test completed', result });
         return;
       }
