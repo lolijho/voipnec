@@ -329,7 +329,7 @@ export class AmiService {
     });
   }
 
-  private executeAction(action: Record<string, string>): Promise<any> {
+  executeAction(action: Record<string, string>): Promise<any> {
     return new Promise((resolve, reject) => {
       if (!this.ami || !this.connected) {
         reject(new Error('AMI not connected'));
