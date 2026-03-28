@@ -329,10 +329,22 @@ export class TrunkService {
       // Find the registration matching this trunk
       const trunkName = this.sanitizeName(trunk.name);
       const registration = registrations.find(
-        (reg: any) =>
-          reg.objectname === trunkName ||
-          reg.serveruri?.includes(trunk.host) ||
-          reg.clienturi?.includes(trunk.username)
+        (reg: any) => {
+          const objName = (reg.objectname || '').toLowerCase();
+          const serverUri = (reg.serveruri || '').toLowerCase();
+          const clientUri = (reg.clienturi || '').toLowerCase();
+          const trunkLower = trunkName.toLowerCase();
+          const hostLower = (trunk.host || '').toLowerCase();
+          const userLower = (trunk.username || '').toLowerCase();
+
+          return (
+            objName === trunkLower ||
+            objName.includes(trunkLower) ||
+            trunkLower.includes(objName.replace(/[-_]reg[-_]?\d*$/, '')) ||
+            (hostLower && serverUri.includes(hostLower)) ||
+            (userLower && clientUri.includes(userLower))
+          );
+        }
       );
 
       if (registration) {
