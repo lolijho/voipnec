@@ -670,27 +670,29 @@ export class AmiService {
       const output = result.output || result.content || result.$content || result.message || '';
       logger.info('getTrunkStatus raw output', { output: String(output).substring(0, 1000) });
 
-      // Parse the CLI output - format:
-      // <Registration/ServerURI...>  <Auth...>  <Status...>
-      // trunk-name/sip:host:port     trunk-auth  Registered  (exp. 3440s)
+      // Parse the CLI output
+      // AMI Command output uses commas as line separators
       const registrations: any[] = [];
-      const lines = String(output).split('\n');
+      const rawStr = String(output);
+      // Split by comma or newline
+      const lines = rawStr.split(/[,\n]/).map((l: string) => l.trim()).filter((l: string) => l.length > 0);
+
+      logger.info('getTrunkStatus lines', { lineCount: lines.length, lines: lines.slice(0, 10) });
 
       for (const line of lines) {
-        const trimmed = line.trim();
-        // Skip headers, separators, empty lines
-        if (!trimmed || trimmed.startsWith('<') || trimmed.startsWith('=') || trimmed.startsWith('Objects')) {
+        // Skip headers, separators, empty, "Objects found" lines
+        if (line.startsWith('<') || line.startsWith('=') || line.startsWith('Objects') || line.length < 10) {
           continue;
         }
 
-        // Parse registration lines - split by whitespace
-        const parts = trimmed.split(/\s+/);
-        if (parts.length >= 3) {
-          const regPart = parts[0]; // e.g. "trunk-messagenet-reg-0/sip:sip.messagenet.it:5060"
-          const authPart = parts[1]; // e.g. "trunk-messagenet-oauth"
-          const statusPart = parts[2]; // e.g. "Registered"
+        // Match registration lines like:
+        // trunk-messagenet-reg-0/sip:sip.messagenet.it:5060       trunk-messagenet-oauth      Registered        (exp. 3445s)
+        const match = line.match(/^(\S+\/sip:\S+)\s+(\S+)\s+(Registered|Unregistered|Rejected|Stopped)/i);
+        if (match) {
+          const regPart = match[1]; // trunk-messagenet-reg-0/sip:sip.messagenet.it:5060
+          const authPart = match[2];
+          const statusPart = match[3];
 
-          // Extract objectname and serveruri from regPart
           const slashIdx = regPart.indexOf('/');
           const objectname = slashIdx >= 0 ? regPart.substring(0, slashIdx) : regPart;
           const serveruri = slashIdx >= 0 ? regPart.substring(slashIdx + 1) : '';
@@ -700,7 +702,7 @@ export class AmiService {
             serveruri,
             auth: authPart,
             status: statusPart,
-            clienturi: '', // CLI output doesn't show clienturi, but we match by serveruri
+            clienturi: '',
           });
         }
       }
