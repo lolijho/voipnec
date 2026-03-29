@@ -271,25 +271,31 @@ try {
   });
 }
 
-try {
-  const { AriService } = require('./services/AriService');
-  const ariConfig = {
-    url: process.env.ASTERISK_ARI_URL || 'http://127.0.0.1:8088',
-    user: process.env.ASTERISK_ARI_USER || 'ariuser',
-    password: process.env.ASTERISK_ARI_PASSWORD || 'arisecret',
-  };
-  ariService = new AriService(ariConfig, io);
-  ariService.connect().catch((err: Error) => {
-    logger.warn('ARI connection failed (non-fatal)', {
-      error: err.message || String(err),
+// ARI disabled - not needed for current setup (AMI is sufficient)
+// Enable by setting ENABLE_ARI=true in environment
+if (process.env.ENABLE_ARI === 'true') {
+  try {
+    const { AriService } = require('./services/AriService');
+    const ariConfig = {
+      url: process.env.ASTERISK_ARI_URL || 'http://127.0.0.1:8088',
+      user: process.env.ASTERISK_ARI_USER || 'ariuser',
+      password: process.env.ASTERISK_ARI_PASSWORD || 'arisecret',
+    };
+    ariService = new AriService(ariConfig, io);
+    ariService.connect().catch((err: Error) => {
+      logger.warn('ARI connection failed (non-fatal)', {
+        error: err.message || String(err),
+      });
     });
-  });
-  app.set('ariService', ariService);
-  logger.info('ARI service initialized', { url: ariConfig.url });
-} catch (err) {
-  logger.warn('ARI service not available', {
-    error: err instanceof Error ? err.message : 'Unknown error',
-  });
+    app.set('ariService', ariService);
+    logger.info('ARI service initialized', { url: ariConfig.url });
+  } catch (err) {
+    logger.warn('ARI service not available', {
+      error: err instanceof Error ? err.message : 'Unknown error',
+    });
+  }
+} else {
+  logger.info('ARI service disabled (set ENABLE_ARI=true to enable)');
 }
 
 try {

@@ -661,8 +661,14 @@ export class AmiService {
         command: 'pjsip show registrations',
       });
 
-      const output = result.output || result.content || result.$content || '';
-      logger.info('getTrunkStatus raw output', { output: String(output).substring(0, 500) });
+      // Log all result keys to find the correct field
+      logger.info('getTrunkStatus AMI result keys', {
+        keys: Object.keys(result),
+        response: result.response,
+        message: result.message,
+      });
+      const output = result.output || result.content || result.$content || result.message || '';
+      logger.info('getTrunkStatus raw output', { output: String(output).substring(0, 1000) });
 
       // Parse the CLI output - format:
       // <Registration/ServerURI...>  <Auth...>  <Status...>
