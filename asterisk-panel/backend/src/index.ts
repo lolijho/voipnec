@@ -238,10 +238,11 @@ app.get('/api/health', (_req, res) => {
 // SIP WebRTC configuration endpoint
 app.get('/api/asterisk/sip-config', (req, res) => {
   const host = req.get('host') || 'localhost';
-  const asteriskHost = process.env.ASTERISK_HOST || '127.0.0.1';
+  const sipDomain = process.env.SIP_DOMAIN || process.env.ASTERISK_HOST || '127.0.0.1';
+  const proto = req.get('x-forwarded-proto') === 'https' ? 'wss' : 'ws';
   res.json({
-    wsUrl: `wss://${host}/ws-sip-proxy`,
-    domain: asteriskHost,
+    wsUrl: `${proto}://${host}/ws-sip-proxy`,
+    domain: sipDomain,
     stunServers: ['stun:stun.l.google.com:19302'],
   });
 });

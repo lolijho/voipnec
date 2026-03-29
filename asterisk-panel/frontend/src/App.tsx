@@ -143,13 +143,29 @@ function AuthenticatedShell({ onLogout }: { onLogout: () => void }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showSoftphone, setShowSoftphone] = useState(false);
+  const [sipConfig, setSipConfig] = useState<{ wsUrl: string; domain: string } | null>(null);
+
+  // ── Fetch SIP config on mount ──────────────────────────────────────
+  useEffect(() => {
+    fetch('/api/asterisk/sip-config')
+      .then((r) => r.json())
+      .then((data) => {
+        console.log('[App] SIP config loaded:', data);
+        setSipConfig(data);
+      })
+      .catch((err) => {
+        console.error('[App] Failed to load SIP config:', err);
+      });
+  }, []);
 
   // ── Hooks ───────────────────────────────────────────────────────────
   const asterisk = useAsterisk();
   const { isConnected, asteriskStatus } = asterisk;
 
   const spConfig = loadSoftphoneConfig();
-  const softphone = useSoftphone(spConfig.extension, spConfig.sipPassword, spConfig.wsUrl);
+  const wsUrl = spConfig.wsUrl || sipConfig?.wsUrl || '';
+  const sipDomain = sipConfig?.domain || 'ast.all-cloud-x.com';
+  const softphone = useSoftphone(spConfig.extension, spConfig.sipPassword, wsUrl, sipDomain);
 
   // ── Close mobile menu on page change ────────────────────────────────
   const handlePageChange = useCallback((page: Page) => {
