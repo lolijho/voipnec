@@ -279,7 +279,11 @@ try {
     password: process.env.ASTERISK_ARI_PASSWORD || 'arisecret',
   };
   ariService = new AriService(ariConfig, io);
-  ariService.connect();
+  ariService.connect().catch((err: Error) => {
+    logger.warn('ARI connection failed (non-fatal)', {
+      error: err.message || String(err),
+    });
+  });
   app.set('ariService', ariService);
   logger.info('ARI service initialized', { url: ariConfig.url });
 } catch (err) {
@@ -414,5 +418,19 @@ function gracefulShutdown(signal: string): void {
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Prevent crashes from unhandled rejections (e.g. ari-client swagger errors)
+process.on('uncaughtException', (err) => {
+  logger.error('Uncaught exception (non-fatal)', {
+    message: err.message,
+    stack: err.stack,
+  });
+});
+
+process.on('unhandledRejection', (reason) => {
+  logger.error('Unhandled rejection (non-fatal)', {
+    reason: reason instanceof Error ? reason.message : String(reason),
+  });
+});
 
 export { app, server, io };
