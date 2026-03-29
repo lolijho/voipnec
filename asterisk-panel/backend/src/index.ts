@@ -121,16 +121,13 @@ const ASTERISK_WS_URL =
 const wss = new WebSocketServer({ noServer: true });
 
 server.on('upgrade', (req, socket, head) => {
-  // Let Socket.io handle its own upgrades
-  if (req.url?.startsWith('/socket.io')) return;
-
+  // Only handle our SIP proxy path - everything else goes to Socket.io
   if (req.url === '/ws-sip-proxy') {
     wss.handleUpgrade(req, socket, head, (browserWs) => {
       wss.emit('connection', browserWs, req);
     });
-  } else {
-    socket.destroy();
   }
+  // Don't destroy or return for other paths - let Socket.io handle them
 });
 
 wss.on('connection', (browserWs, req) => {
@@ -186,20 +183,24 @@ wss.on('connection', (browserWs, req) => {
     return code === 1006 ? 1011 : code;
   }
 
-  browserWs.on('close', (code, reason) => {
+  browserWs.on('close', (code) => {
     logger.info('SIP WS proxy: browser disconnected', { clientIp, code });
     clearInterval(pingInterval);
-    if (asteriskWs.readyState === WebSocket.OPEN || asteriskWs.readyState === WebSocket.CONNECTING) {
-      asteriskWs.close(safeCloseCode(code), reason);
-    }
+    try {
+      if (asteriskWs.readyState === WebSocket.OPEN) {
+        asteriskWs.close(safeCloseCode(code));
+      }
+    } catch { /* ignore */ }
   });
 
-  asteriskWs.on('close', (code, reason) => {
+  asteriskWs.on('close', (code) => {
     logger.info('SIP WS proxy: Asterisk disconnected', { code });
     clearInterval(pingInterval);
-    if (browserWs.readyState === WebSocket.OPEN || browserWs.readyState === WebSocket.CONNECTING) {
-      browserWs.close(safeCloseCode(code), reason);
-    }
+    try {
+      if (browserWs.readyState === WebSocket.OPEN) {
+        browserWs.close(safeCloseCode(code));
+      }
+    } catch { /* ignore */ }
   });
 
   browserWs.on('error', (err) => {
