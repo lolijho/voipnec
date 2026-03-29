@@ -272,31 +272,26 @@ try {
   });
 }
 
-// ARI disabled - not needed for current setup (AMI is sufficient)
-// Enable by setting ENABLE_ARI=true in environment
-if (process.env.ENABLE_ARI === 'true') {
-  try {
-    const { AriService } = require('./services/AriService');
-    const ariConfig = {
-      url: process.env.ASTERISK_ARI_URL || 'http://127.0.0.1:8088',
-      user: process.env.ASTERISK_ARI_USER || 'ariuser',
-      password: process.env.ASTERISK_ARI_PASSWORD || 'arisecret',
-    };
-    ariService = new AriService(ariConfig, io);
-    ariService.connect().catch((err: Error) => {
-      logger.warn('ARI connection failed (non-fatal)', {
-        error: err.message || String(err),
-      });
+// ARI service - enable with correct URL
+try {
+  const { AriService } = require('./services/AriService');
+  const ariConfig = {
+    url: process.env.ASTERISK_ARI_URL || `http://${process.env.ASTERISK_HOST || '127.0.0.1'}:8088`,
+    user: process.env.ASTERISK_ARI_USER || 'admin',
+    password: process.env.ASTERISK_ARI_PASSWORD || 'Maddy210521',
+  };
+  ariService = new AriService(ariConfig, io);
+  ariService.connect().catch((err: Error) => {
+    logger.warn('ARI connection failed (non-fatal)', {
+      error: err.message || String(err),
     });
-    app.set('ariService', ariService);
-    logger.info('ARI service initialized', { url: ariConfig.url });
-  } catch (err) {
-    logger.warn('ARI service not available', {
-      error: err instanceof Error ? err.message : 'Unknown error',
-    });
-  }
-} else {
-  logger.info('ARI service disabled (set ENABLE_ARI=true to enable)');
+  });
+  app.set('ariService', ariService);
+  logger.info('ARI service initialized', { url: ariConfig.url });
+} catch (err) {
+  logger.warn('ARI service not available', {
+    error: err instanceof Error ? err.message : 'Unknown error',
+  });
 }
 
 try {
@@ -346,6 +341,7 @@ mountRoute('/api/calls', './routes/calls');
 mountRoute('/api/extensions', './routes/extensions');
 mountRoute('/api/trunks', './routes/trunks');
 mountRoute('/api/phonebook', './routes/phonebook');
+mountRoute('/api/inbound', './routes/inbound');
 
 // ── Serve Frontend Static Files ───────────────────────────────────────────────
 

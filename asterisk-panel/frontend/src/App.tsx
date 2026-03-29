@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, Component, type ErrorInfo, type React
 import {
   LayoutDashboard,
   PhoneCall,
+  PhoneIncoming,
   History,
   Users,
   Network,
@@ -30,6 +31,7 @@ import Extensions from '@/components/Extensions';
 import TrunkManager from '@/components/TrunkManager';
 import Phonebook from '@/components/Phonebook';
 import IVRBuilder from '@/components/IVRBuilder';
+import InboundRoutes from '@/components/InboundRoutes';
 import SettingsPage from '@/components/Settings';
 import Softphone from '@/components/Softphone';
 
@@ -43,6 +45,7 @@ type Page =
   | 'trunks'
   | 'phonebook'
   | 'ivr'
+  | 'inbound'
   | 'queues'
   | 'settings';
 
@@ -60,6 +63,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'history', label: 'Storico', icon: History },
   { id: 'extensions', label: 'Interni', icon: Users },
   { id: 'trunks', label: 'Trunk', icon: Network },
+  { id: 'inbound', label: 'In Entrata', icon: PhoneIncoming },
   { id: 'phonebook', label: 'Rubrica', icon: BookOpen },
   { id: 'ivr', label: 'IVR', icon: GitBranch },
   { id: 'queues', label: 'Code', icon: ListOrdered },
@@ -72,6 +76,7 @@ const PAGE_TITLES: Record<Page, string> = {
   history: 'Storico Chiamate',
   extensions: 'Interni',
   trunks: 'Trunk',
+  inbound: 'Instradamento in Entrata',
   phonebook: 'Rubrica',
   ivr: 'IVR Builder',
   queues: 'Code',
@@ -271,6 +276,9 @@ function AuthenticatedShell({ onLogout }: { onLogout: () => void }) {
 
       case 'trunks':
         return <TrunkManager />;
+
+      case 'inbound':
+        return <InboundRoutes />;
 
       case 'phonebook':
         return (
