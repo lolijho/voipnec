@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   PhoneCall,
   PhoneIncoming,
+  PhoneOutgoing,
   History,
   Users,
   Network,
@@ -32,6 +33,7 @@ import TrunkManager from '@/components/TrunkManager';
 import Phonebook from '@/components/Phonebook';
 import IVRBuilder from '@/components/IVRBuilder';
 import InboundRoutes from '@/components/InboundRoutes';
+import OutboundRoutes from '@/components/OutboundRoutes';
 import SettingsPage from '@/components/Settings';
 import Softphone from '@/components/Softphone';
 
@@ -46,6 +48,7 @@ type Page =
   | 'phonebook'
   | 'ivr'
   | 'inbound'
+  | 'outbound'
   | 'queues'
   | 'settings';
 
@@ -64,6 +67,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'extensions', label: 'Interni', icon: Users },
   { id: 'trunks', label: 'Trunk', icon: Network },
   { id: 'inbound', label: 'In Entrata', icon: PhoneIncoming },
+  { id: 'outbound', label: 'In Uscita', icon: PhoneOutgoing },
   { id: 'phonebook', label: 'Rubrica', icon: BookOpen },
   { id: 'ivr', label: 'IVR', icon: GitBranch },
   { id: 'queues', label: 'Code', icon: ListOrdered },
@@ -77,6 +81,7 @@ const PAGE_TITLES: Record<Page, string> = {
   extensions: 'Interni',
   trunks: 'Trunk',
   inbound: 'Instradamento in Entrata',
+  outbound: 'Instradamento in Uscita',
   phonebook: 'Rubrica',
   ivr: 'IVR Builder',
   queues: 'Code',
@@ -286,6 +291,9 @@ function AuthenticatedShell({ onLogout }: { onLogout: () => void }) {
 
       case 'inbound':
         return <InboundRoutes />;
+
+      case 'outbound':
+        return <OutboundRoutes />;
 
       case 'phonebook':
         return (

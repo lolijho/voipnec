@@ -466,30 +466,43 @@ export class TrunkService {
 
         // AOR section
         const aorName = `${trunkName}_aor`;
+        const isTwilio = trunk.provider === 'twilio';
+        const aorContact = isTwilio ? `sip:${host}` : `sip:${host}:${port}`;
         await this.amiUpdateConfig(srcFilename, [
           { action: 'NewCat', category: aorName, match: '' },
           { action: 'Append', category: aorName, variable: 'type', value: 'aor' },
-          { action: 'Append', category: aorName, variable: 'contact', value: `sip:${host}:${port}` },
+          { action: 'Append', category: aorName, variable: 'contact', value: aorContact },
           { action: 'Append', category: aorName, variable: 'qualify_frequency', value: '60' },
         ]);
 
         // Endpoint section
-        await this.amiUpdateConfig(srcFilename, [
-          { action: 'NewCat', category: trunkName, match: '' },
-          { action: 'Append', category: trunkName, variable: 'type', value: 'endpoint' },
-          { action: 'Append', category: trunkName, variable: 'context', value: config.context || `from-trunk-${trunkName}` },
-          { action: 'Append', category: trunkName, variable: 'disallow', value: 'all' },
+        const endpointActions = [
+          { action: 'NewCat' as const, category: trunkName, match: '' },
+          { action: 'Append' as const, category: trunkName, variable: 'type', value: 'endpoint' },
+          { action: 'Append' as const, category: trunkName, variable: 'context', value: config.context || `from-trunk-${trunkName}` },
+          { action: 'Append' as const, category: trunkName, variable: 'disallow', value: 'all' },
           ...codecs.map((codec: string) => ({
             action: 'Append' as const, category: trunkName, variable: 'allow', value: codec,
           })),
-          { action: 'Append', category: trunkName, variable: 'outbound_auth', value: authName },
-          { action: 'Append', category: trunkName, variable: 'aors', value: aorName },
-          { action: 'Append', category: trunkName, variable: 'from_user', value: username },
-          { action: 'Append', category: trunkName, variable: 'from_domain', value: host },
-        ]);
+          { action: 'Append' as const, category: trunkName, variable: 'outbound_auth', value: authName },
+          { action: 'Append' as const, category: trunkName, variable: 'aors', value: aorName },
+          { action: 'Append' as const, category: trunkName, variable: 'from_user', value: username },
+          { action: 'Append' as const, category: trunkName, variable: 'from_domain', value: host },
+        ];
 
-        // Registration section
-        if (config.register !== false) {
+        // Twilio-specific endpoint settings
+        if (isTwilio) {
+          endpointActions.push(
+            { action: 'Append' as const, category: trunkName, variable: 'media_encryption', value: 'sdes' },
+            { action: 'Append' as const, category: trunkName, variable: 'media_encryption_optimistic', value: 'yes' },
+            { action: 'Append' as const, category: trunkName, variable: 'transport', value: config.transport === 'tls' ? 'transport-tls' : 'transport-tls' },
+          );
+        }
+
+        await this.amiUpdateConfig(srcFilename, endpointActions);
+
+        // Registration section (Twilio uses IP-based auth, no SIP registration needed)
+        if (config.register !== false && !isTwilio) {
           const regName = `reg_${trunkName}`;
           await this.amiUpdateConfig(srcFilename, [
             { action: 'NewCat', category: regName, match: '' },

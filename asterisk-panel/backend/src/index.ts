@@ -342,6 +342,7 @@ mountRoute('/api/extensions', './routes/extensions');
 mountRoute('/api/trunks', './routes/trunks');
 mountRoute('/api/phonebook', './routes/phonebook');
 mountRoute('/api/inbound', './routes/inbound');
+mountRoute('/api/outbound', './routes/outbound');
 
 // ── Serve Frontend Static Files ───────────────────────────────────────────────
 
