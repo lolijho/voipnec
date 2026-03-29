@@ -651,52 +651,60 @@ export class AmiService {
 
   async getTrunkStatus(): Promise<any[]> {
     try {
-      const registrations: any[] = [];
+      if (!this.ami || !this.connected) {
+        throw new Error('AMI not connected');
+      }
 
-      return new Promise((resolve, reject) => {
-        if (!this.ami || !this.connected) {
-          reject(new Error('AMI not connected'));
-          return;
+      // Use AMI Command action to run CLI "pjsip show registrations"
+      const result = await this.executeAction({
+        action: 'Command',
+        command: 'pjsip show registrations',
+      });
+
+      const output = result.output || result.content || result.$content || '';
+      logger.info('getTrunkStatus raw output', { output: String(output).substring(0, 500) });
+
+      // Parse the CLI output - format:
+      // <Registration/ServerURI...>  <Auth...>  <Status...>
+      // trunk-name/sip:host:port     trunk-auth  Registered  (exp. 3440s)
+      const registrations: any[] = [];
+      const lines = String(output).split('\n');
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        // Skip headers, separators, empty lines
+        if (!trimmed || trimmed.startsWith('<') || trimmed.startsWith('=') || trimmed.startsWith('Objects')) {
+          continue;
         }
 
-        const actionId = `pjsipregistrations-${Date.now()}`;
+        // Parse registration lines - split by whitespace
+        const parts = trimmed.split(/\s+/);
+        if (parts.length >= 3) {
+          const regPart = parts[0]; // e.g. "trunk-messagenet-reg-0/sip:sip.messagenet.it:5060"
+          const authPart = parts[1]; // e.g. "trunk-messagenet-oauth"
+          const statusPart = parts[2]; // e.g. "Registered"
 
-        const handler = (event: any) => {
-          if (event.actionid !== actionId) return;
+          // Extract objectname and serveruri from regPart
+          const slashIdx = regPart.indexOf('/');
+          const objectname = slashIdx >= 0 ? regPart.substring(0, slashIdx) : regPart;
+          const serveruri = slashIdx >= 0 ? regPart.substring(slashIdx + 1) : '';
 
-          if (event.event === 'OutboundRegistrationDetail') {
-            registrations.push({
-              objectname: event.objectname || '',
-              serveruri: event.serveruri || '',
-              clienturi: event.clienturi || '',
-              status: event.status || '',
-              nextregtime: event.nextregtime || '',
-            });
-          }
+          registrations.push({
+            objectname,
+            serveruri,
+            auth: authPart,
+            status: statusPart,
+            clienturi: '', // CLI output doesn't show clienturi, but we match by serveruri
+          });
+        }
+      }
 
-          if (event.event === 'OutboundRegistrationDetailComplete') {
-            this.ami.removeListener('managerevent', handler);
-            resolve(registrations);
-          }
-        };
-
-        this.ami.on('managerevent', handler);
-
-        this.ami.action(
-          { action: 'PJSIPShowRegistrationsOutbound', actionid: actionId },
-          (err: Error | null) => {
-            if (err) {
-              this.ami.removeListener('managerevent', handler);
-              reject(err);
-            }
-          }
-        );
-
-        setTimeout(() => {
-          this.ami.removeListener('managerevent', handler);
-          resolve(registrations);
-        }, 10000);
+      logger.info('getTrunkStatus parsed', {
+        count: registrations.length,
+        registrations,
       });
+
+      return registrations;
     } catch (err) {
       logger.error('Failed to get trunk status', {
         error: err instanceof Error ? err.message : 'Unknown error',

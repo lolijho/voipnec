@@ -387,24 +387,34 @@ export default function TrunkManager() {
   async function handleTestConnection(trunkId: number) {
     setTesting(trunkId);
     try {
-      const result = await testTrunk(trunkId);
-      if (result.success) {
+      const res = await testTrunk(trunkId);
+      // Backend returns { message, result: { registered, status, details } }
+      // or old format { success, message, latency }
+      const result = (res as any).result || res;
+      const isOk = result.registered ?? result.success ?? false;
+      const status = result.status || '';
+      const msg = (res as any).message || result.message || '';
+
+      if (isOk) {
         toast({
-          title: 'Connessione riuscita',
-          description: result.message + (result.latency ? ` (${result.latency}ms)` : ''),
+          title: 'Trunk registrato',
+          description: `${msg} - Stato: ${status}`,
         });
       } else {
         toast({
-          title: 'Connessione fallita',
-          description: result.message,
+          title: 'Trunk non registrato',
+          description: `Stato: ${status}. ${msg}. Dettagli: ${JSON.stringify(result.details || {})}`,
           variant: 'destructive',
         });
       }
+      fetchTrunks();
     } catch (err: unknown) {
-      const msg =
-        err instanceof Error
-          ? err.message
-          : (err as { message?: string })?.message || 'Errore nel test';
+      let msg = 'Errore sconosciuto';
+      if (err instanceof Error) {
+        msg = err.message;
+      } else if (typeof err === 'object' && err !== null) {
+        msg = (err as any).error || (err as any).message || JSON.stringify(err);
+      }
       toast({ title: 'Test fallito', description: msg, variant: 'destructive' });
     } finally {
       setTesting(null);

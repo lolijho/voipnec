@@ -314,56 +314,92 @@ export function createRouter(deps: TrunksDeps): Router {
         return;
       }
 
+      // Check AMI connectivity first
+      const amiConnected = amiService?.isConnected ?? false;
+      logger.info('Trunk test started', {
+        trunkId: id,
+        trunkName: trunk.name,
+        amiConnected,
+        hasTrunkService: !!trunkService,
+        hasTrunkServiceMethod: !!(trunkService && typeof trunkService.testTrunkConnection === 'function'),
+      });
+
+      if (!amiConnected) {
+        res.status(503).json({
+          error: 'AMI non connesso. Verifica ASTERISK_HOST e credenziali AMI.',
+          details: {
+            amiConnected: false,
+            host: process.env.ASTERISK_HOST || '(not set)',
+            port: process.env.ASTERISK_AMI_PORT || '5038',
+          },
+        });
+        return;
+      }
+
       if (trunkService && typeof trunkService.testTrunkConnection === 'function') {
         const result = await trunkService.testTrunkConnection(id);
+        logger.info('Trunk test result via service', { trunkId: id, result });
         res.json({ message: 'Trunk test completed', result });
         return;
       }
 
-      // Fallback: use AMI to check trunk status
-      if (!amiService) {
-        res.status(503).json({ error: 'AMI service not available for trunk testing' });
-        return;
-      }
-
+      // Fallback: use AMI directly
+      logger.info('Trunk test: using AMI fallback (no trunkService)');
       const trunkStatuses = await amiService.getTrunkStatus();
       const trunkConfig = JSON.parse(trunk.config_json);
       const trunkHost = trunkConfig.host || trunkConfig.server || trunk.name;
 
+      logger.info('Trunk test: AMI registrations', {
+        trunkName: trunk.name,
+        trunkHost,
+        registrationCount: trunkStatuses.length,
+        registrations: trunkStatuses.map((s: any) => ({
+          objectname: s.objectname,
+          status: s.status,
+          serveruri: s.serveruri,
+          clienturi: s.clienturi,
+        })),
+      });
+
       const matchedStatus = Array.isArray(trunkStatuses)
         ? trunkStatuses.find(
             (s: any) =>
-              s.objectname === trunk.name ||
-              s.peer === trunk.name ||
-              s.host === trunkHost
+              s.objectname?.includes(trunk.name) ||
+              s.serveruri?.includes(trunkHost) ||
+              s.clienturi?.includes(trunkConfig.username)
           )
         : null;
 
-      const isReachable = matchedStatus
-        ? matchedStatus.status === 'Reachable' || matchedStatus.reachability === 'Reachable'
+      const isRegistered = matchedStatus
+        ? (matchedStatus.status === 'Registered' || matchedStatus.status === 'registered')
         : false;
 
-      logger.info('Trunk test executed', {
-        user: req.user?.username,
+      logger.info('Trunk test completed', {
         trunkId: id,
         trunkName: trunk.name,
-        reachable: isReachable,
+        matched: !!matchedStatus,
+        registered: isRegistered,
+        matchedObjectName: matchedStatus?.objectname,
+        matchedStatus: matchedStatus?.status,
       });
 
       res.json({
         message: 'Trunk test completed',
         result: {
-          trunkId: id,
-          trunkName: trunk.name,
-          reachable: isReachable,
-          status: matchedStatus || null,
+          registered: isRegistered,
+          status: matchedStatus?.status || 'Not Found',
+          details: matchedStatus || { registrationsChecked: trunkStatuses.length },
         },
       });
     } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
       logger.error('Failed to test trunk', {
-        error: err instanceof Error ? err.message : 'Unknown error',
+        error: errorMsg,
+        stack: err instanceof Error ? err.stack : undefined,
       });
-      res.status(500).json({ error: 'Failed to test trunk' });
+      res.status(500).json({
+        error: `Test trunk fallito: ${errorMsg}`,
+      });
     }
   });
 
