@@ -172,6 +172,13 @@ function AuthenticatedShell({ onLogout }: { onLogout: () => void }) {
   const sipDomain = sipConfig?.domain || 'ast.all-cloud-x.com';
   const softphone = useSoftphone(spConfig.extension, spConfig.sipPassword, wsUrl, sipDomain);
 
+  // Auto-show softphone on incoming call
+  useEffect(() => {
+    if (softphone.callDirection === 'in' && !softphone.inCall) {
+      setShowSoftphone(true);
+    }
+  }, [softphone.callDirection, softphone.inCall]);
+
   // ── Close mobile menu on page change ────────────────────────────────
   const handlePageChange = useCallback((page: Page) => {
     setCurrentPage(page);
@@ -507,7 +514,7 @@ function AuthenticatedShell({ onLogout }: { onLogout: () => void }) {
                 callDuration={softphone.callDuration}
                 isMuted={softphone.isMuted}
                 isOnHold={softphone.isOnHold}
-                isRinging={false}
+                isRinging={softphone.callDirection === 'in' && !softphone.inCall}
                 onCall={(number, trunk) => softphone.call(number, trunk)}
                 onAnswer={softphone.answer}
                 onHangup={softphone.hangup}

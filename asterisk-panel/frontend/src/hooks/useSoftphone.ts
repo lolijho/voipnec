@@ -249,6 +249,15 @@ export function useSoftphone(
         authorizationUsername: config.authorizationUsername,
         authorizationPassword: config.authorizationPassword,
         displayName: config.displayName,
+        noAnswerTimeout: 120,
+        sessionDescriptionHandlerFactoryOptions: {
+          peerConnectionConfiguration: {
+            iceServers: [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:stun1.l.google.com:19302' },
+            ],
+          },
+        },
         delegate: {
           onInvite: (invitation: Invitation) => {
             if (!mountedRef.current) return;
@@ -260,17 +269,18 @@ export function useSoftphone(
             }
 
             const callerNumber = getRemoteNumber(invitation);
+            console.log('[useSoftphone] Incoming call from:', callerNumber);
 
             sessionRef.current = invitation;
             setCallDirection('in');
             setRemoteNumber(callerNumber);
-            setInCall(false); // Not yet answered
+            setInCall(false); // Not yet answered - waiting for user to answer
 
             showIncomingCallNotification(callerNumber);
             setupSessionStateListener(invitation);
           },
         },
-      });
+      } as any);
 
       uaRef.current = userAgent;
     } catch (err) {
@@ -395,8 +405,14 @@ export function useSoftphone(
               audio: true,
               video: false,
             },
+            peerConnectionConfiguration: {
+              iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+              ],
+            },
           },
-        });
+        } as any);
 
         sessionRef.current = inviter;
         setCallDirection('out');
@@ -426,8 +442,14 @@ export function useSoftphone(
             audio: true,
             video: false,
           },
+          peerConnectionConfiguration: {
+            iceServers: [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:stun1.l.google.com:19302' },
+            ],
+          },
         },
-      });
+      } as any);
     } catch (err) {
       console.error('[useSoftphone] Failed to answer call:', err);
     }
