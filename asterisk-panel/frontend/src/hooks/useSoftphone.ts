@@ -30,36 +30,76 @@ export interface UseSoftphoneReturn {
 
 // ── Helper: attach remote audio stream ────────────────────────────────
 
-function attachRemoteAudio(session: Session): void {
-  try {
-    const sdh = (session as any).sessionDescriptionHandler;
-    if (!sdh) return;
-
-    // Remove any existing remote audio element
-    const existing = document.getElementById('softphone-remote-audio');
-    if (existing) {
-      existing.remove();
-    }
-
-    const audioEl = document.createElement('audio');
+function getOrCreateAudioElement(): HTMLAudioElement {
+  let audioEl = document.getElementById('softphone-remote-audio') as HTMLAudioElement | null;
+  if (!audioEl) {
+    audioEl = document.createElement('audio');
     audioEl.autoplay = true;
     audioEl.id = 'softphone-remote-audio';
     document.body.appendChild(audioEl);
+  }
+  return audioEl;
+}
 
-    // SIP.js 0.21.x: sessionDescriptionHandler has remoteMediaStream
-    const remoteStream = sdh.remoteMediaStream as MediaStream | undefined;
-    if (remoteStream) {
-      audioEl.srcObject = remoteStream;
+function attachRemoteAudio(session: Session): void {
+  try {
+    const audioEl = getOrCreateAudioElement();
+
+    const sdh = (session as any).sessionDescriptionHandler;
+    if (sdh) {
+      // SIP.js 0.21.x: sessionDescriptionHandler has remoteMediaStream
+      const remoteStream = sdh.remoteMediaStream as MediaStream | undefined;
+      if (remoteStream && remoteStream.getTracks().length > 0) {
+        audioEl.srcObject = remoteStream;
+        audioEl.play().catch(() => {/* autoplay blocked */});
+      }
+
+      // Listen for track events on the peer connection
+      const pc = sdh.peerConnection as RTCPeerConnection | undefined;
+      if (pc) {
+        pc.ontrack = (event: RTCTrackEvent) => {
+          if (event.streams && event.streams[0]) {
+            audioEl.srcObject = event.streams[0];
+            audioEl.play().catch(() => {/* autoplay blocked */});
+          }
+        };
+      }
     }
 
-    // Also listen for track events on the peer connection
-    const pc = sdh.peerConnection as RTCPeerConnection | undefined;
-    if (pc) {
-      pc.ontrack = (event: RTCTrackEvent) => {
-        if (event.streams && event.streams[0]) {
-          audioEl.srcObject = event.streams[0];
+    // If SDH doesn't exist yet (Establishing phase), watch for it
+    if (!sdh && (session as any).sessionDescriptionHandlerFactory) {
+      const checkSdh = setInterval(() => {
+        const s = (session as any).sessionDescriptionHandler;
+        if (s) {
+          clearInterval(checkSdh);
+          const remoteStream = s.remoteMediaStream as MediaStream | undefined;
+          if (remoteStream && remoteStream.getTracks().length > 0) {
+            audioEl.srcObject = remoteStream;
+            audioEl.play().catch(() => {/* autoplay blocked */});
+          }
+          const pc = s.peerConnection as RTCPeerConnection | undefined;
+          if (pc) {
+            pc.ontrack = (event: RTCTrackEvent) => {
+              if (event.streams && event.streams[0]) {
+                audioEl.srcObject = event.streams[0];
+                audioEl.play().catch(() => {/* autoplay blocked */});
+              }
+            };
+            // Check if tracks already arrived
+            const receivers = pc.getReceivers();
+            if (receivers.length > 0) {
+              const stream = new MediaStream();
+              receivers.forEach((r) => { if (r.track) stream.addTrack(r.track); });
+              if (stream.getTracks().length > 0) {
+                audioEl.srcObject = stream;
+                audioEl.play().catch(() => {/* autoplay blocked */});
+              }
+            }
+          }
         }
-      };
+      }, 100);
+      // Stop checking after 10 seconds
+      setTimeout(() => clearInterval(checkSdh), 10000);
     }
   } catch (err) {
     console.error('[useSoftphone] Failed to attach remote audio:', err);
