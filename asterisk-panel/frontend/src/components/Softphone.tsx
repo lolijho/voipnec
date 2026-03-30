@@ -158,7 +158,7 @@ export default function Softphone({
   onAttendedTransfer,
   trunks = [],
 }: SoftphoneProps) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const [numberInput, setNumberInput] = useState('');
   const [selectedTrunk, setSelectedTrunk] = useState<string>('');
   const [transferOpen, setTransferOpen] = useState(false);
@@ -198,33 +198,33 @@ export default function Softphone({
   const isIncoming = isRinging && callDirection === 'in' && !inCall;
 
   return (
-    <div className="w-72 rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl">
+    <div className="w-full max-w-sm mx-auto rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl">
       {/* ── Incoming call banner ──────────────────────────────────── */}
       {isIncoming && (
         <div className="flex items-center justify-between rounded-t-xl border-b border-zinc-800 bg-green-950/50 px-4 py-3">
           <div className="flex items-center gap-2">
-            <PhoneIncoming className="h-4 w-4 animate-pulse text-green-400" />
+            <PhoneIncoming className="h-5 w-5 animate-pulse text-green-400" />
             <div>
               <p className="text-xs font-medium text-green-300">Chiamata in arrivo</p>
-              <p className="text-sm font-semibold text-zinc-100">{remoteNumber || 'Sconosciuto'}</p>
+              <p className="text-base font-semibold text-zinc-100">{remoteNumber || 'Sconosciuto'}</p>
             </div>
           </div>
-          <div className="flex gap-1.5">
+          <div className="flex gap-2">
             <Button
               size="sm"
-              className="h-8 bg-green-600 hover:bg-green-700 text-white"
+              className="h-10 px-4 bg-green-600 hover:bg-green-700 text-white text-sm"
               onClick={onAnswer}
             >
-              <Phone className="mr-1 h-3.5 w-3.5" />
+              <Phone className="mr-1.5 h-4 w-4" />
               Rispondi
             </Button>
             <Button
               size="sm"
               variant="destructive"
-              className="h-8"
+              className="h-10 w-10 p-0"
               onClick={onHangup}
             >
-              <X className="h-3.5 w-3.5" />
+              <X className="h-4 w-4" />
             </Button>
           </div>
         </div>
@@ -292,7 +292,8 @@ export default function Softphone({
               value={inCall ? remoteNumber : numberInput}
               onChange={(e) => setNumberInput(e.target.value)}
               readOnly={inCall}
-              className="bg-zinc-900 border-zinc-700 text-center text-lg font-semibold tabular-nums text-zinc-100 placeholder:text-zinc-600"
+              style={{ fontSize: '18px' }}
+              className="h-12 bg-zinc-900 border-zinc-700 text-center font-semibold tabular-nums text-zinc-100 placeholder:text-zinc-600"
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !inCall) handleCall();
               }}
@@ -319,17 +320,17 @@ export default function Softphone({
           )}
 
           {/* DTMF keypad */}
-          <div className="mb-3 grid grid-cols-3 gap-1.5">
+          <div className="mb-3 grid grid-cols-3 gap-2">
             {DTMF_KEYS.map((key) => (
               <button
                 key={key}
                 type="button"
                 onClick={() => handleDtmfPress(key)}
-                className="flex h-12 flex-col items-center justify-center rounded-lg bg-zinc-800 text-zinc-100 transition-colors hover:bg-zinc-700 active:bg-zinc-600"
+                className="flex h-14 flex-col items-center justify-center rounded-xl bg-zinc-800 text-zinc-100 transition-colors hover:bg-zinc-700 active:bg-zinc-600 select-none touch-manipulation"
               >
-                <span className="text-lg font-semibold leading-none">{key}</span>
+                <span className="text-xl font-semibold leading-none">{key}</span>
                 {DTMF_LABELS[key] && (
-                  <span className="mt-0.5 text-[9px] tracking-widest text-zinc-500">
+                  <span className="mt-0.5 text-[10px] tracking-widest text-zinc-500">
                     {DTMF_LABELS[key]}
                   </span>
                 )}
@@ -342,31 +343,31 @@ export default function Softphone({
             {!inCall ? (
               <>
                 <Button
-                  className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                  className="flex-1 h-12 text-base bg-green-600 hover:bg-green-700 text-white rounded-xl touch-manipulation"
                   onClick={handleCall}
                   disabled={!registered || !numberInput.trim()}
                 >
-                  <Phone className="mr-1.5 h-4 w-4" />
+                  <Phone className="mr-2 h-5 w-5" />
                   Chiama
                 </Button>
                 {numberInput && (
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="text-zinc-400 hover:text-zinc-200"
+                    className="h-12 w-12 p-0 text-zinc-400 hover:text-zinc-200 touch-manipulation"
                     onClick={() => setNumberInput('')}
                   >
-                    <X className="h-4 w-4" />
+                    <X className="h-5 w-5" />
                   </Button>
                 )}
               </>
             ) : (
               <Button
                 variant="destructive"
-                className="flex-1"
+                className="flex-1 h-12 text-base rounded-xl touch-manipulation"
                 onClick={onHangup}
               >
-                <PhoneOff className="mr-1.5 h-4 w-4" />
+                <PhoneOff className="mr-2 h-5 w-5" />
                 Riaggancia
               </Button>
             )}
