@@ -35,25 +35,52 @@ export function createRouter(deps: TrunksDeps): Router {
   // All routes are protected
   router.use(authenticateToken);
 
-  // GET / - list trunks
+  // GET / - list trunks (with live registration status)
   router.get('/', async (_req: AuthenticatedRequest, res: Response) => {
     try {
+      let trunks: any[];
       if (trunkService) {
-        const trunks = await trunkService.getTrunks();
-        res.json({ trunks });
-        return;
+        trunks = await trunkService.getTrunks();
+      } else {
+        const rows = db
+          .prepare('SELECT * FROM trunks ORDER BY name')
+          .all() as TrunkRow[];
+        trunks = rows.map((t) => ({
+          ...t,
+          config: JSON.parse(t.config_json),
+        }));
       }
 
-      const trunks = db
-        .prepare('SELECT * FROM trunks ORDER BY name')
-        .all() as TrunkRow[];
+      // Enrich with live registration status from AMI
+      if (amiService?.isConnected) {
+        try {
+          const registrations = await amiService.getTrunkStatus();
+          for (const trunk of trunks) {
+            const hostLower = (trunk.host || '').toLowerCase();
+            const userLower = (trunk.username || '').toLowerCase();
+            const nameLower = (trunk.name || '').toLowerCase();
 
-      const parsed = trunks.map((t) => ({
-        ...t,
-        config: JSON.parse(t.config_json),
-      }));
+            const match = registrations.find((reg: any) => {
+              const serverUri = (reg.serveruri || '').toLowerCase();
+              const objName = (reg.objectname || '').toLowerCase();
+              if (hostLower && serverUri.includes(hostLower)) return true;
+              if (userLower && serverUri.includes(userLower)) return true;
+              if (objName.includes(nameLower)) return true;
+              return false;
+            });
 
-      res.json({ trunks: parsed });
+            if (match) {
+              trunk.status = match.status; // 'Registered', 'Unregistered', etc.
+            }
+          }
+        } catch (err) {
+          logger.warn('Failed to fetch live trunk status', {
+            error: err instanceof Error ? err.message : 'Unknown',
+          });
+        }
+      }
+
+      res.json({ trunks });
     } catch (err) {
       logger.error('Failed to list trunks', {
         error: err instanceof Error ? err.message : 'Unknown error',
