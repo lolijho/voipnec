@@ -240,7 +240,7 @@ function AuthenticatedShell({ onLogout }: { onLogout: () => void }) {
             trunkStatuses={trunkStatusRecord}
             trunks={asterisk.trunks.map((t) => ({
               name: t.name,
-              status: t.status || 'unknown',
+              status: asterisk.trunkStatuses.get(t.name)?.status || t.status || 'unknown',
             }))}
           />
         );

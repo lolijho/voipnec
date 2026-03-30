@@ -99,6 +99,11 @@ io.on('connection', (socket) => {
   socket.join(`role:${user.role}`);
   socket.join(`user:${user.userId}`);
 
+  // Send current Asterisk connection status to the newly connected client
+  socket.emit('asterisk:status', {
+    connected: amiService?.isConnected ?? false,
+  });
+
   socket.on('disconnect', (reason) => {
     logger.info('Socket.io client disconnected', {
       userId: user.userId,
@@ -244,6 +249,21 @@ app.get('/api/asterisk/sip-config', (req, res) => {
     wsUrl: `${proto}://${host}/ws-sip-proxy`,
     domain: sipDomain,
     stunServers: ['stun:stun.l.google.com:19302'],
+  });
+});
+
+// Asterisk status endpoint (returns AMI/ARI connection info)
+app.get('/api/asterisk/status', (_req, res) => {
+  res.json({
+    ami: {
+      connected: amiService?.isConnected ?? false,
+      host: process.env.ASTERISK_HOST || '127.0.0.1',
+      port: parseInt(process.env.ASTERISK_AMI_PORT || '5038', 10),
+    },
+    ari: {
+      connected: ariService?.isConnected ?? false,
+      url: process.env.ASTERISK_ARI_URL || `http://${process.env.ASTERISK_HOST || '127.0.0.1'}:8088`,
+    },
   });
 });
 

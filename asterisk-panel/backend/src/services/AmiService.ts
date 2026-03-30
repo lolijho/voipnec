@@ -133,12 +133,14 @@ export class AmiService {
           port: this.config.port,
         });
         this.io.to('ami').emit('ami:connected');
+        this.io.emit('asterisk:status', { connected: true });
       });
 
       this.ami.on('close', () => {
         this.connected = false;
         logger.warn('AMI connection closed');
         this.io.to('ami').emit('ami:disconnected');
+        this.io.emit('asterisk:status', { connected: false });
         this.scheduleReconnect();
       });
 

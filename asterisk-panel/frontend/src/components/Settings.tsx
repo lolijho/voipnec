@@ -112,12 +112,36 @@ export default function Settings({
   asteriskStatus,
   asteriskVersion,
   asteriskUptime,
-  amiHost = '127.0.0.1',
-  amiPort = 5038,
-  ariHost = '127.0.0.1',
-  ariPort = 8088,
+  amiHost: amiHostProp = '127.0.0.1',
+  amiPort: amiPortProp = 5038,
+  ariHost: ariHostProp = '127.0.0.1',
+  ariPort: ariPortProp = 8088,
 }: SettingsProps) {
   const { toast } = useToast();
+
+  // ── Fetch real AMI/ARI status from backend ────────────────────────
+  const [amiHost, setAmiHost] = useState(amiHostProp);
+  const [amiPort, setAmiPort] = useState(amiPortProp);
+  const [ariUrl, setAriUrl] = useState(`${ariHostProp}:${ariPortProp}`);
+  const [ariConnected, setAriConnected] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/asterisk/status')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.ami) {
+          setAmiHost(data.ami.host);
+          setAmiPort(data.ami.port);
+        }
+        if (data.ari) {
+          setAriUrl(data.ari.url);
+          setAriConnected(data.ari.connected);
+        }
+      })
+      .catch(() => {
+        // keep defaults
+      });
+  }, []);
 
   // ── Password form ─────────────────────────────────────────────────
   const [currentPassword, setCurrentPassword] = useState('');
@@ -256,7 +280,7 @@ export default function Settings({
             <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-medium text-zinc-300">ARI (REST)</span>
-                {asteriskStatus === 'connected' ? (
+                {ariConnected ? (
                   <Badge className="bg-green-900/50 text-green-400 border-green-800 text-xs">
                     <CheckCircle2 className="mr-1 h-3 w-3" />
                     Connesso
@@ -269,8 +293,7 @@ export default function Settings({
                 )}
               </div>
               <div className="space-y-1 text-xs text-zinc-500">
-                <p>Host: <span className="text-zinc-400">{ariHost}</span></p>
-                <p>Porta: <span className="text-zinc-400">{ariPort}</span></p>
+                <p>URL: <span className="text-zinc-400">{ariUrl}</span></p>
               </div>
             </div>
           </div>
