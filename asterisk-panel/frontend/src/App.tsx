@@ -197,7 +197,9 @@ function AuthenticatedShell({ onLogout }: { onLogout: () => void }) {
 
   const registeredTrunks = trunks.filter((t) => {
     const s = trunkStatuses.get(t.name);
-    return s?.status === 'registered' || t.status === 'registered';
+    const sStatus = (s?.status || '').toLowerCase();
+    const tStatus = (t.status || '').toLowerCase();
+    return sStatus === 'registered' || tStatus === 'registered';
   }).length;
   const totalTrunks = trunks.length;
 
