@@ -193,7 +193,8 @@ export function useSoftphone(
 
         switch (state) {
           case SessionState.Establishing:
-            // Call is being set up
+            // Attach audio early to hear ringback tone (early media / 183)
+            attachRemoteAudio(session);
             break;
           case SessionState.Established:
             setInCall(true);
