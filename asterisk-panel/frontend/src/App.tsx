@@ -150,10 +150,22 @@ class ErrorBoundary extends Component<
 function AuthenticatedShell({ onLogout }: { onLogout: () => void }) {
   const { toast } = useToast();
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [showSoftphone, setShowSoftphone] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sipConfig, setSipConfig] = useState<{ wsUrl: string; domain: string } | null>(null);
+
+  // On mobile, default to showing softphone (dialer)
+  const [mobileShowDialer, setMobileShowDialer] = useState(true);
+  // On desktop, softphone is a floating panel
+  const [showSoftphone, setShowSoftphone] = useState(false);
+
+  // Detect mobile
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth < 1024);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
 
   // ── Fetch SIP config on mount ──────────────────────────────────────
   useEffect(() => {
@@ -188,7 +200,8 @@ function AuthenticatedShell({ onLogout }: { onLogout: () => void }) {
   const handlePageChange = useCallback((page: Page) => {
     setCurrentPage(page);
     setMobileMenuOpen(false);
-  }, []);
+    if (isMobile) setMobileShowDialer(false);
+  }, [isMobile]);
 
   // ── Trunk status summary (safe) ─────────────────────────────────────
   const trunks = asterisk.trunks || [];
@@ -336,6 +349,27 @@ function AuthenticatedShell({ onLogout }: { onLogout: () => void }) {
     }
   }
 
+  // Softphone props (shared between mobile and desktop)
+  const softphoneProps = {
+    registered: softphone.registered,
+    inCall: softphone.inCall,
+    callDirection: softphone.callDirection,
+    remoteNumber: softphone.remoteNumber,
+    callDuration: softphone.callDuration,
+    isMuted: softphone.isMuted,
+    isOnHold: softphone.isOnHold,
+    isRinging: softphone.callDirection === 'in' && !softphone.inCall,
+    onCall: (number: string, trunk?: string) => softphone.call(number, trunk),
+    onAnswer: softphone.answer,
+    onHangup: softphone.hangup,
+    onToggleMute: softphone.toggleMute,
+    onToggleHold: softphone.toggleHold,
+    onSendDtmf: softphone.sendDtmf,
+    onBlindTransfer: softphone.blindTransfer,
+    onAttendedTransfer: softphone.attendedTransfer,
+    trunks: asterisk.trunks.map((t) => ({ name: t.name })),
+  };
+
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-100 overflow-hidden">
       {/* ── Mobile overlay ────────────────────────────────────────── */}
@@ -355,7 +389,7 @@ function AuthenticatedShell({ onLogout }: { onLogout: () => void }) {
         `}
       >
         {/* Logo */}
-        <div className="flex h-16 items-center gap-3 border-b border-zinc-800 px-4">
+        <div className="flex h-14 items-center gap-3 border-b border-zinc-800 px-4">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600/20">
             <Phone className="h-5 w-5 text-violet-400" />
           </div>
@@ -364,7 +398,6 @@ function AuthenticatedShell({ onLogout }: { onLogout: () => void }) {
               AsteriskPanel
             </span>
           )}
-          {/* Close button on mobile */}
           <button
             type="button"
             className="ml-auto lg:hidden text-zinc-400 hover:text-zinc-200"
@@ -374,11 +407,30 @@ function AuthenticatedShell({ onLogout }: { onLogout: () => void }) {
           </button>
         </div>
 
+        {/* Mobile: Softphone nav item */}
+        <div className="lg:hidden px-3 pt-3">
+          <button
+            type="button"
+            onClick={() => { setMobileShowDialer(true); setMobileMenuOpen(false); }}
+            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+              mobileShowDialer
+                ? 'bg-green-600/20 text-green-300 border border-green-500/30'
+                : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+            }`}
+          >
+            <Phone className="h-5 w-5 shrink-0" />
+            <span>Telefono</span>
+            {softphone.registered && (
+              <span className="ml-auto h-2 w-2 rounded-full bg-green-500" />
+            )}
+          </button>
+        </div>
+
         {/* Nav items */}
-        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
+        <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-1">
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
-            const isActive = currentPage === item.id;
+            const isActive = currentPage === item.id && !mobileShowDialer;
             return (
               <button
                 key={item.id}
@@ -400,7 +452,6 @@ function AuthenticatedShell({ onLogout }: { onLogout: () => void }) {
 
         {/* Bottom: collapse toggle + logout */}
         <div className="border-t border-zinc-800 px-3 py-3 space-y-1">
-          {/* Collapse toggle - desktop only */}
           <button
             type="button"
             onClick={() => setSidebarCollapsed((prev) => !prev)}
@@ -410,8 +461,6 @@ function AuthenticatedShell({ onLogout }: { onLogout: () => void }) {
             <Menu className="h-5 w-5 shrink-0" />
             {!sidebarCollapsed && <span>Comprimi</span>}
           </button>
-
-          {/* Logout */}
           <button
             type="button"
             onClick={onLogout}
@@ -428,43 +477,42 @@ function AuthenticatedShell({ onLogout }: { onLogout: () => void }) {
 
       {/* ── Main area ─────────────────────────────────────────────── */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        {/* ── Header ────────────────────────────────────────────────── */}
-        <header className="flex h-16 shrink-0 items-center justify-between border-b border-zinc-800 bg-zinc-900 px-4 lg:px-6">
-          {/* Left: mobile menu + page title */}
+        {/* ── Mobile header (compact) ──────────────────────────────── */}
+        <header className="flex h-14 shrink-0 items-center justify-between border-b border-zinc-800 bg-zinc-900 px-3 lg:px-6">
+          {/* Left: hamburger menu */}
           <div className="flex items-center gap-3">
             <button
               type="button"
               className="lg:hidden text-zinc-400 hover:text-zinc-200"
               onClick={() => setMobileMenuOpen(true)}
             >
-              <Menu className="h-5 w-5" />
+              <Menu className="h-6 w-6" />
             </button>
-            <h1 className="text-lg font-semibold text-zinc-100">
-              {PAGE_TITLES[currentPage]}
+            {/* Title: show page name or "Telefono" on mobile dialer */}
+            <h1 className="text-base lg:text-lg font-semibold text-zinc-100">
+              {isMobile && mobileShowDialer ? '' : PAGE_TITLES[currentPage]}
             </h1>
           </div>
 
-          {/* Center/Right: status indicators */}
-          <div className="flex items-center gap-4">
-            {/* Connection status */}
-            <div className="hidden sm:flex items-center gap-2">
-              <span
-                className={`inline-block h-2 w-2 rounded-full ${
-                  isConnected && asteriskStatus === 'connected'
-                    ? 'bg-green-500'
-                    : 'bg-red-500'
-                }`}
-              />
-              <span className="text-xs text-zinc-400">
-                {isConnected && asteriskStatus === 'connected' ? 'Connesso' : 'Disconnesso'}
-              </span>
-            </div>
+          {/* Right: status indicators */}
+          <div className="flex items-center gap-2 lg:gap-4">
+            {/* Connection dot */}
+            <span
+              className={`inline-block h-2 w-2 rounded-full ${
+                isConnected && asteriskStatus === 'connected'
+                  ? 'bg-green-500'
+                  : 'bg-red-500'
+              }`}
+            />
+            <span className="hidden lg:inline text-xs text-zinc-400">
+              {isConnected && asteriskStatus === 'connected' ? 'Connesso' : 'Disconnesso'}
+            </span>
 
-            {/* Trunk summary */}
+            {/* Trunk summary - desktop only */}
             {totalTrunks > 0 && (
               <Badge
                 variant="outline"
-                className={`hidden sm:inline-flex border-zinc-700 text-xs ${
+                className={`hidden lg:inline-flex border-zinc-700 text-xs ${
                   registeredTrunks === totalTrunks
                     ? 'text-green-400 border-green-800'
                     : registeredTrunks > 0
@@ -477,11 +525,11 @@ function AuthenticatedShell({ onLogout }: { onLogout: () => void }) {
               </Badge>
             )}
 
-            {/* Mini softphone toggle */}
+            {/* Desktop: softphone toggle */}
             <Button
               size="sm"
               variant="outline"
-              className={`h-8 relative border-zinc-700 ${
+              className={`hidden lg:flex h-8 relative border-zinc-700 ${
                 softphone.inCall
                   ? 'border-blue-700 text-blue-400'
                   : softphone.registered
@@ -489,7 +537,6 @@ function AuthenticatedShell({ onLogout }: { onLogout: () => void }) {
                   : 'text-zinc-500'
               }`}
               onClick={() => setShowSoftphone(!showSoftphone)}
-              title={softphone.registered ? 'Softphone registrato' : 'Softphone offline'}
             >
               <Phone className="h-4 w-4 mr-1" />
               {softphone.inCall ? (
@@ -498,49 +545,56 @@ function AuthenticatedShell({ onLogout }: { onLogout: () => void }) {
                   {String(softphone.callDuration % 60).padStart(2, '0')}
                 </span>
               ) : (
-                <span className="text-xs hidden sm:inline">Telefono</span>
+                <span className="text-xs">Telefono</span>
               )}
               {softphone.registered && !softphone.inCall && (
                 <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-green-500" />
               )}
             </Button>
+
+            {/* Mobile: softphone button (go back to dialer) */}
+            <button
+              type="button"
+              className={`lg:hidden p-2 rounded-lg ${
+                mobileShowDialer
+                  ? 'bg-green-600/20 text-green-400'
+                  : softphone.inCall
+                  ? 'bg-blue-600/20 text-blue-400'
+                  : softphone.registered
+                  ? 'text-green-400'
+                  : 'text-zinc-500'
+              }`}
+              onClick={() => setMobileShowDialer(true)}
+            >
+              <Phone className="h-5 w-5" />
+            </button>
           </div>
         </header>
 
         {/* ── Content area ──────────────────────────────────────────── */}
         <div className="flex-1 overflow-hidden relative">
-          <main className="h-full overflow-y-auto p-4 lg:p-6">
-            {renderPage()}
-          </main>
-
-          {/* Softphone panel (floating) */}
-          {showSoftphone && (
-            <div className="absolute top-2 right-2 z-50 shadow-2xl">
-              <Softphone
-                registered={softphone.registered}
-                inCall={softphone.inCall}
-                callDirection={softphone.callDirection}
-                remoteNumber={softphone.remoteNumber}
-                callDuration={softphone.callDuration}
-                isMuted={softphone.isMuted}
-                isOnHold={softphone.isOnHold}
-                isRinging={softphone.callDirection === 'in' && !softphone.inCall}
-                onCall={(number, trunk) => softphone.call(number, trunk)}
-                onAnswer={softphone.answer}
-                onHangup={softphone.hangup}
-                onToggleMute={softphone.toggleMute}
-                onToggleHold={softphone.toggleHold}
-                onSendDtmf={softphone.sendDtmf}
-                onBlindTransfer={softphone.blindTransfer}
-                onAttendedTransfer={softphone.attendedTransfer}
-                trunks={asterisk.trunks.map((t) => ({ name: t.name }))}
-              />
+          {/* Mobile: full-screen softphone when dialer is active */}
+          {isMobile && mobileShowDialer ? (
+            <div className="h-full flex items-center justify-center p-4">
+              <Softphone {...softphoneProps} />
             </div>
+          ) : (
+            <>
+              <main className="h-full overflow-y-auto p-4 lg:p-6">
+                {renderPage()}
+              </main>
+
+              {/* Desktop: floating softphone panel */}
+              {!isMobile && showSoftphone && (
+                <div className="absolute top-2 right-2 z-50 shadow-2xl">
+                  <Softphone {...softphoneProps} />
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
 
-      {/* ── Toast provider ────────────────────────────────────────── */}
       <Toaster />
     </div>
   );
