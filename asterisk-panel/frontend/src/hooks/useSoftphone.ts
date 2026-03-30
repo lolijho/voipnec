@@ -388,9 +388,10 @@ export function useSoftphone(
         }
       })();
 
-      const targetStr = trunk
-        ? `sip:${trunk}/${number}@${sipDomain}`
-        : `sip:${number}@${sipDomain}`;
+      // Always dial just the number - Asterisk dialplan handles trunk routing
+      // trunk parameter is ignored here (used by dialplan outbound routes)
+      void trunk;
+      const targetStr = `sip:${number}@${sipDomain}`;
 
       try {
         const targetURI = UserAgent.makeURI(targetStr);
